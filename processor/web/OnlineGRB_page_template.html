@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+        "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=US-ASCII" />
+<meta http-equiv="refresh" content="60" />
+<meta http-equiv="cache-control" content="no-cache" />
+<meta http-equiv="pragma" content="no-cache" />
+<meta http-equiv="expires" content="-1" />
+<title>Online GRB Search</title>
+<style type="text/css">
+  h1 { color: blue; font-family: sans-serif; text-align: center; }
+  h2 { color: blue; font-family: sans-serif; }
+  h3.styl { color: #08298A; font-family: sans-serif; font-size: 200%;}
+  run.styl { color: #0000CC; font-family: sans-serif; font-size: 110%;}
+  td { font-family: monospace; font-size: 110%; }
+  th { background-color: #CCCCCC; font-family: sans-serif; font-size: 95%}
+
+  .str1 { text-align: left; }
+  .str2 { text-align: center; }
+  .num  { text-align: right; }
+
+  .grbname    { text-align: left; }
+  .grbsat     { text-align: left; }
+  .grbgps     { text-align: left; }
+  .grbdate    { text-align: left; }
+  .grbra      { text-align: right; }
+  .grbdec     { text-align: right; }
+  .grberr     { text-align: right; }
+  .pipeline   { text-align: left; font-weight: bold;}
+  .network    { text-align: left; }
+  .jobid      { text-align: right; }
+  .latency    { text-align: right; }
+  .jobruntime { text-align: right; }
+  .jobstatus  { text-align: center; }
+  .rescuectr  { text-align: right; }
+  .openbox    { text-align: center; }
+
+  .jobrun     { background-color: #5AAE6F; text-align: center; }
+  .jobsucceed { background-color: #2B7AC9; text-align: center; }
+  .jobfail    { background-color: #D36565; text-align: center; }
+  .jobcut     { background-color: #C6AB74; text-align: center; }
+  .jobidle    { background-color: #FFFF66; text-align: center; }
+  .jobheld    { background-color: #00CCFF; text-align: center; }
+  .jobsubmit  { background-color: #E29FDB; text-align: center; }
+
+  .light { background-color: #8CB1D3; }
+  .dark  { background-color: #B2D4F3; }
+  .manual  { background-color: #FFFF66; }
+  .retract { background-color: #FFBBDD; }
+</style>
+
+<script language="JavaScript">
+
+function alternate(id)
+{
+
+  if (document.getElementsByTagName)
+  {
+    var table = document.getElementById(id);
+    var rows  = table.getElementsByTagName("tr");
+
+    for (i = 2; i < rows.length; i++)
+    {
+      if (i%2 != 0)
+      {
+        rows[i].className = "light";
+      } else {
+        rows[i].className = "dark";
+      }
+    }
+  }
+}
+
+</script>
+
+</head>
+
+<body onload="alternate('xjobs')" bgcolor="#FFFFFF">
+
+<div id="pagebanner" align="center" style="margin-top: -20px;margin-bottom: -20px ">
+  <table border="0" cellspacing="0" cellpadding="0" width="1350px" height="2px">
+    <tr bgcolor="#FFFFFF"><td><h3 class="styl">Burst/CBC preER7 Online GRB Search</h3></td></tr>
+  </table>
+</div>
+
+
+<div id="tableheader" align="center">
+<table id="xjobs" width="1350px" border="0" cellpadding="4" cellspacing="1">
+<col width="6.5%" />
+<col width="5.5%" />
+<col width="8.5%" />
+<col width="7.5%" />
+<col width="5.5%" />
+<col width="5.5%" />
+<col width="5.5%" />
+<col width="7.5%" />
+<col width="3.7%" />
+<col width="6.5%" />
+<col width="3.5%" />
+<col width="7.5%" />
+<col width="6.5%" />
+<col width="1.5%" />
+<col width="6.5%" />
+<col width="7.5%" />
+<col width="6.5%" />
+<col width="5.5%" />
+
+<tr>
+  <th rowspan="2">GraceDB<br />GRB</th> 
+  <th rowspan="2">Satellite</th> 
+  <th colspan="2">Trigger time</th> 
+  <th colspan="3">Coordinates</th>
+  <th rowspan="2">Pipeline</th>
+  <th rowspan="2">IFO<br />in<br />science</th> 
+  <th colspan="5">Trigger generation job</th>
+  <th colspan="3">Post-processing job</th>
+  <th rowspan="2">Result</th>
+</tr>
+
+<tr>
+  <th>UT</th> <th>GPS</th>
+  <th>R.A. (deg)</th> <th>Dec (deg)</th> <th>Err (deg)</th>
+  <th>ID</th> <th>Latency (min) </th> <th>Run time</th> <th>Status</th> <th>Rescue #</th>
+  <th>ID</th> <th>Run time</th> <th>Status</th>
+</tr>
+
+<!-- Insert new GRBs here -->
+
+
+
+</table>
+</div>
+
+</body>
+</html>

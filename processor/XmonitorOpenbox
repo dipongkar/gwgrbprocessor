@@ -1,0 +1,212 @@
+#!/usr/bin/perl
+
+require 'exttrig_utils.pl';
+require 'exttrig_params.pl';
+
+#=== Get user name ===#
+$USERNAME = `whoami`;
+chomp($USERNAME);
+
+#=== Specify local working directories ===#
+$HOMEDIR    = sprintf "/home/%s", $USERNAME;
+$GRBDIR     = sprintf "%s/Online/%s/grbs", $HOMEDIR, $LIGORUN;
+$SCRIPTSDIR = sprintf "%s/Online/%s/processor", $HOMEDIR, $LIGORUN;
+$WEBDIR     = sprintf "%s/Online/%s/processor/web", $HOMEDIR, $LIGORUN;
+$JOBSDIR    = sprintf "%s/runs/X", $SCRIPTSDIR;
+$RESULTSURL = sprintf "%s/~%s/grb/online/%s/search/results", $PUBSERVER, $USERNAME, $LIGORUN;
+$PUBLICDIR  = sprintf "%s/public_html/grb/online/%s/search/results", $HOMEDIR, $LIGORUN;
+$MAINWEBDIR = sprintf "%s/~%s/grb/online/%s", $PUBSERVER, $USERNAME, $LIGORUN;
+$MAINURL    = sprintf "%s/~%s/web/%s/OnlineGRB_page_%s.html", $PUBSERVER, $USERNAME, $LIGORUN, $LIGORUN;
+
+#=== Specify output html file ===#
+$htmlFile = sprintf "%s/OnlineGRB_page_%s.html", $WEBDIR, $LIGORUN;
+
+#=== Specify line offset for job status line in html file ===#
+$lineOffset = 5;
+
+#=== Open input open-box status file ===#
+$openboxFile = sprintf "%s/openboxjobs_%s.log", $SCRIPTSDIR, $LIGORUN;
+$tempFile    = sprintf "%s/openboxjobs_%s_temp.log", $SCRIPTSDIR, $LIGORUN;
+open OPENBOX, "<$openboxFile"
+  or die "Error opening input open-box status file $openboxFile: $!";
+chomp(@openboxJobs = <OPENBOX>);
+close OPENBOX;
+
+#=== Loop through GRBs ===#
+foreach $openboxJob (@openboxJobs) {
+
+  ($grbName,$grbGPS,$grbDate,$ifoString,$grbSat,$openjobCluster,$openjobStatus) = split(' ',$openboxJob);
+
+  if ($openjobStatus ne 'PROCESSED') {
+    #=== Set default open box link ===#
+    $resultsLink = '';
+
+    #=== Set default open box link ===#
+    $openboxLink = '';
+
+    $condorCommand = sprintf "condor_q %d", $openjobCluster;
+    @condorResult  = ();
+    @condorResult  = `$condorCommand`;
+    chomp(@condorResult);
+
+    #=== If job is not found ===#
+    if ($#condorResult < 4) {
+      $failFetchFlag = 0;
+      if ($#condorResult+1 == 0) {
+        $failFetchFlag = 1;
+      }
+      if ($failFetchFlag == 0) {
+
+        #=== Copy open-box files to public web directory ===#
+        $AUTOWEB = sprintf "%s/GRB%s/auto_web", $JOBSDIR, $grbName;
+        $HTMLDIR = sprintf "%s/%s_online", $PUBLICDIR, $grbName;
+
+        $cpCommand = sprintf "cp %s/%s_online_openbox.shtml %s/", $AUTOWEB, $grbName, $HTMLDIR;
+        system $cpCommand;
+        $cpCommand = sprintf "cp -r %s/%s_online_openbox_figfiles %s", $AUTOWEB, $grbName, $HTMLDIR;
+        system $cpCommand;
+        $cpCommand = sprintf "cp -r %s/%s_online_openbox_figures %s", $AUTOWEB, $grbName, $HTMLDIR;
+        system $cpCommand;
+
+        #=== Note finish time of analysis ===#
+        $gpsTime    = `tconvert now`;
+        chomp($gpsTime);
+        $timeString = `tconvert $gpsTime`;
+        chomp($timeString);
+
+        #=== Calculate processing time in hours ===#
+        $processTime = 0;
+        $processTime = ($gpsTime - $grbGPS)/3600.0;
+        if ($processTime < 0) {
+          $processTime = 0;
+        }
+
+        #=== Get line number of this GRB in the monitor file ===#
+        $sedCommand = sprintf "sed -n '/^%s /=' %s", $grbName, $openboxFile;
+        $lineNumber = -1;
+        $lineNumber = `$sedCommand`;
+        chomp($lineNumber);
+
+        if ($lineNumber =~ /^[1-9]/) {
+          $monitorString = sprintf "%s %10.0f %s %s %s %10s %-9s %11.5f %s", 
+                                    $grbName, $grbGPS, $grbDate, $ifoString, $grbSat, $openjobCluster, 'PROCESSED', 
+                                    $processTime, $timeString;
+          $sedCommand = sprintf "sed '%ds/.*/%s/' %s > %s",
+                        $lineNumber, $monitorString, $openboxFile, $tempFile;
+          system $sedCommand;
+
+          $cpCommand = sprintf "cp %s %s", $tempFile, $openboxFile;
+          system $cpCommand;
+        }
+
+        #=== Specify link with results ===#
+        $openboxLink = sprintf "%s\\/%s_online\\/%s_online_openbox.shtml", $RESULTSURL, $grbName, $grbName;
+
+        #=== Update search status web page ===#
+        $searchStatusTable = {};
+        $searchStatusTable->{'GRB_NAME'} = $grbName;
+        $searchStatusTable->{'IFO_STRING'}  = $ifoString;
+
+        updateWebStatus($searchStatusTable,$htmlFile,$lineOffset,$resultsLink,$openboxLink);
+
+        #=== Annotate the GraceDB external trigger event ===#
+
+       $awkCommand = sprintf "awk 'c&&!--c;/Table of loudest surviving on-source events/{c=6}' %s/%s_online_openbox.shtml", $AUTOWEB, $grbName;
+       $awkComandResult = -1;
+       $awkComandResult = `$awkCommand`;
+       chomp($awkComandResult);
+       
+       my @stuff = $awkComandResult =~ />([^<]+)</g;
+       $statistics = join (" ", @stuff);
+       $probability = @stuff[1];
+       
+       if ($probability >= 0 and $probability ne "") {
+         #$gracedbCommand = sprintf "X-pipeline results: No surviving event. For full results, see '<a href=\"%s\">here</a>'.", $openboxLink;
+         #chomp($gracedbCommand);
+         #printf $gracedbCommand;
+         #$gracedbAnnotate = system $gracedbCommand;
+         #$gracedbAnnotate = `$gracedbCommand`;
+         #$annotateFile = sprintf "%s/annotateGraceDB_X_noevent_template.py", $SCRIPTSDIR;
+         #$catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB.py", $annotateFile, $grbName;
+         #system $catCommand1;
+         #$annotateCommand = sprintf "python annotateGraceDB.py";
+         #system $annotateCommand;
+         #$rmCommand = sprintf "rm -f annotateGraceDB.py";
+         #system $rmCommand;
+       #} elsif ($probability >=0) {
+         #$gracedbCommand = sprintf "X-pipeline results: Probability = %s for the most significant event. For full results, see '<a href=\"%s\">here</a>'.", $probability, $openboxLink;
+         #chomp($gracedbCommand);
+         #printf $gracedbCommand;
+         #$gracedbAnnotate = system $gracedbCommand;
+         #$gracedbAnnotate = `$gracedbCommand`;
+         $annotateFile = sprintf "%s/annotateGraceDB_X_event_template.py", $SCRIPTSDIR;
+         $catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB_temp.py", $annotateFile, $grbName;
+         system $catCommand1;
+         $catCommand2 = sprintf "cat annotateGraceDB_temp.py | sed s/PROBABILITY_VAL/%s/ > annotateGraceDB.py", $probability;
+         system $catCommand2;
+         $rmCommand = sprintf "rm -f annotateGraceDB_temp.py";
+         system $rmCommand;
+         $annotateCommand = sprintf "python annotateGraceDB.py";
+         system $annotateCommand;
+         $rmCommand = sprintf "rm -f annotateGraceDB.py";
+         system $rmCommand;
+       } else {
+         $annotateFile = sprintf "%s/annotateGraceDB_X_noevent_template.py", $SCRIPTSDIR;
+         $catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB.py", $annotateFile, $grbName;
+         system $catCommand1;
+         $annotateCommand = sprintf "python annotateGraceDB.py";
+         system $annotateCommand;
+         $rmCommand = sprintf "rm -f annotateGraceDB.py";
+         system $rmCommand;
+      }
+#       $annotateFile = sprintf "%s/annotateGraceDB_template.py", $SCRIPTSDIR;
+#       $catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/ > annotateGraceDB_temp.py", $annotateFile, $grbName;
+#       system $catCommand1;
+#       $catCommand2 = sprintf "cat annotateGraceDB_temp.py | sed s/FULL_MESSAGE/%s/ > annotateGraceDB.py", $gracedbCommand;
+       #$catCommand2 = sprintf "cat annotateGraceDB_temp.py | sed s/FULL_MESSAGE/%s/ > annotateGraceDB.py", $grbName;
+#       system $catCommand2;
+#       $rmCommand = sprintf "rm -f annotateGraceDB_temp.py";
+#       system $rmCommand;
+#       $annotateCommand = sprintf "python annotateGraceDB.py";
+#       system $annotateCommand;
+#       $rmCommand = sprintf "rm -f annotateGraceDB.py";
+#       system $rmCommand;
+
+        &sendResultsMessage;
+      }
+    }
+  }
+  #=== Endif status is not PROCESSED ===#
+}
+
+sub sendResultsMessage {
+
+  $emailsFile   = sprintf "%s/grbemailsless.txt", $SCRIPTSDIR;
+  $messagesFile = sprintf "%s/grbmessages_%s.log", $SCRIPTSDIR, $LIGORUN;
+
+  #=== Specify pages with results ===#
+  $resultsPageClosed = sprintf "%s/search/results/%s_online/%s_online_closedbox.shtml", $MAINWEBDIR, $grbName, $grbName;
+  $resultsPageOpen   = sprintf "%s/search/results/%s_online/%s_online_openbox.shtml", $MAINWEBDIR, $grbName, $grbName;
+
+  $eheaderTable = {};
+  $eheaderTable->{'SUBJECT'} = sprintf "[X-pipeline] GRB %s processed", $grbName;
+
+  #=== Construct the message ===#
+  $noticeString = sprintf "GRB %s has been processed, %8.3f hours after the trigger.", 
+                               $grbName, $processTime;
+  $noticeString = sprintf "%s\n\nClosed box results:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>", $noticeString, $resultsPageClosed;
+  $noticeString = sprintf "%s\n\nOpen box results:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>", $noticeString, $resultsPageOpen;
+  $noticeString = sprintf "%s\n\nMain results page:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>\n", $noticeString, $MAINURL;
+
+  $eheaderTable->{'MESSAGE'} = $noticeString;
+
+  printf "$noticeString\n";
+
+  #=== Send the message ===#
+  grbNotify($eheaderTable,$emailsFile,$messagesFile);
+}
+
+#=== End monitorOpenJobs ===#

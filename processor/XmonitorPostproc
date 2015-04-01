@@ -1,0 +1,232 @@
+#!/usr/bin/perl
+
+use Switch;
+
+require 'exttrig_utils.pl';
+require 'exttrig_params.pl';
+
+#=== Get user name ===#
+$USERNAME = `whoami`;
+chomp($USERNAME);
+
+#=== Specify debug level ===#
+$DEBUGLVL = 1;
+
+#=== Specify local working directories ===#
+$HOMEDIR    = sprintf "/home/%s", $USERNAME;
+$GRBDIR     = sprintf "%s/Online/%s/grbs", $HOMEDIR, $LIGORUN;
+$SCRIPTSDIR = sprintf "%s/Online/%s/processor", $HOMEDIR, $LIGORUN;
+$JOBSDIR    = sprintf "%s/runs/X", $SCRIPTSDIR;
+$WEBDIR     = sprintf "%s/Online/%s/processor/web", $HOMEDIR, $LIGORUN;
+$RESULTSURL = sprintf "%s/~%s/grb/online/%s/search/results", $PUBSERVER, $USERNAME, $LIGORUN;
+
+#=== Specify output html file ===#
+$htmlFile = sprintf "%s/OnlineGRB_page_%s.html", $WEBDIR, $LIGORUN;
+
+#=== Specify line offset for job status line in html file ===#
+$lineOffset = 4;
+
+#=== Set start time ===#
+$currentDelay = $MONDELAY + 1;
+
+#while (1) {
+
+  #=== If MONDELAY seoconds has elapsed since last monitor ===#
+#  if ($currentDelay >= $MONDELAY) {
+
+    #=== Update time of scp ===#
+    $previousTime = time;
+
+    #=== Open input search status file ===#
+    $processStatusFile = sprintf "%s/processedjobs_%s.log", $SCRIPTSDIR, $LIGORUN;
+    $tempFile          = sprintf "%s/processedjobs_%s_temp.log", $SCRIPTSDIR, $LIGORUN;
+    open PROCSTAT, "<$processStatusFile"
+      or die "Error opening input search status file $processStatusFile: $!";
+    chomp(@procStats = <PROCSTAT>);
+    close PROCSTAT;
+
+    #=== Open output open-box status file ===#
+    $openboxFile = sprintf "%s/openboxjobs_%s.log", $SCRIPTSDIR, $LIGORUN;
+    open OPENBOX, ">>$openboxFile"
+      or die "Error opening output open-box status file $openboxFile: $!";
+
+    #=== Possible status descriptions ===#
+    # PROCESSED
+    # SUBMITTED
+    # DATACUT
+    # RUNNING
+    # IDLE
+    # HELD
+
+    #=== Loop through GRBs ===#
+    foreach $procStat (@procStats) {
+      ($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,
+       $jobCluster,$latency,$jobRunTime,$jobStatus,$rescueCtr,$procjobCluster,$runTime,$procjobStatus,$procrescueCtr) = split(' ',$procStat);
+
+      #=== Set default results link ===#
+      $resultsLink = '';
+
+      #=== Set default open box link ===#
+      $openboxLink = '';
+
+      #=== If condor job was submitted, check on jobs ===#
+      if ($procjobStatus ne 'PROCESSED' && $jobStatus ne 'DATACUT' && $jobStatus ne 'RESCUE') {
+        $condorCommand = sprintf "condor_q %d", $procjobCluster;
+        @condorResult  = ();
+        @condorResult  = `$condorCommand`;
+        chomp(@condorResult);
+
+        #=== If job is not found ===#
+        if ($#condorResult < 4) {
+          printf "number of lines = $#condorResult\n";
+          $failFetchFlag = 0;
+          if ($#condorResult+1 == 0) {
+            $failFetchFlag = 1;
+          }
+
+          if ($failFetchFlag == 0) {
+            #=== Specify directory for post-processing jobs ===#
+            $jobDir  = sprintf "%s/GRB%s/auto_web", $JOBSDIR, $grbName;
+
+            #=== Check if a rescue file exists ===#
+            @jobdirFiles = ();
+            $lsCommand   = sprintf "ls $jobDir";
+            @jobdirFiles = `$lsCommand`;
+            chomp(@jobdirFiles);
+            $rescueDag = '';
+            foreach $jobdirLine (@jobdirFiles) {
+              if ($jobdirLine =~ /(grb_web\.dag)\.rescue(\d+)/) {
+                $rescueDag = $1;
+                #if ($rescueDag =~ /(\d+)/) {
+                  $rescueNum = $2;
+                  if ($rescueNum > $procrescueCtr) {
+                    $procjobStatus = 'RESCUE';
+                    #$rescueCommand = sprintf "condor_submit_dag %s", $rescueDag;
+                    $rescueCommand = sprintf "condor_submit_dag grb_web.dag";
+                    $procjobCluster = 0;
+                    $runTime = '0+00:00:00';
+                    printf "$rescueCommand\n";
+                    chdir "$jobDir";
+                    @rescueResult = ();
+                    @rescueResult = `$rescueCommand`;
+                    $procrescueCtr++;
+                    chomp(@rescueResult);
+                    foreach $rescueLine (@rescueResult) {
+                      if ($rescueLine =~ /cluster (\d+)/) {
+                        $procjobCluster = $1;
+                        last;
+                      }
+                    }
+                    chdir "$SCRIPTSDIR";
+                    last;
+                  }
+                #}
+              }
+            }
+
+            if ($procjobStatus ne 'RESCUE') {
+              #=== Set status to processed ===#
+              $procjobStatus = 'PROCESSED';
+              #=== Specify link with results ===#
+              $resultsLink = sprintf "%s\\/%s_online\\/%s_online_closedbox.shtml", $RESULTSURL, $grbName, $grbName;
+
+              #===      Open the box      ===#
+              #=== Prepare condor command ===#
+              $condorCommand = sprintf "condor_submit xmakegrbwebpage_open.sub";
+
+              #=== Submit condor jobs ===#
+              chdir "$jobDir";
+              $openjobCluster = 0;
+              @condorResult   = ();
+              @condorResult   = `$condorCommand`;
+              chomp(@condorResult);
+              foreach $condorLine (@condorResult) {
+                if ($condorLine =~ /cluster (\d+)/) {
+                  $openjobCluster = $1;
+                  last;
+                }
+              }
+              chdir "$SCRIPTSDIR";
+              if ($openjobCluster != 0) {
+                printf OPENBOX "%s %10.0f %s %s %s %10s %-9s\n", $grbName, $grbGPS, $grbDate, $ifoString, $grbSat, $openjobCluster, 'RUNNING';
+              }
+            }
+          }
+        } else {
+          #=== Parse the condor_q output ===#
+          $condorLine = $condorResult[$#condorResult];
+          ($clusterID,$ownerName,$submitDate,$submitTime, 
+             $runTime,$runStatus,$runPriority,$runSize,$runCommand) = 
+               split(' ',$condorLine);
+          printf "$clusterID $ownerName $submitDate $submitTime ";
+          printf "$runTime $runStatus $runPriority $runSize $runCommand\n";
+
+          #=== Specify job status explicitly ===#
+          switch ($runStatus) {
+            case 'R' { $procjobStatus = 'RUNNING'; }
+            case 'I' { $procjobStatus = 'IDLE';    }
+            case 'H' { $procjobStatus = 'HELD';    }
+          }
+        }
+
+        #=== Check if this GRB has an entry in the output monitor file ===#
+        $sedCommand = sprintf "sed -n '/^%s /=' %s", $grbName, $processStatusFile;
+        $lineNumber = -1;
+        $lineNumber = `$sedCommand`;
+        chomp($lineNumber);
+
+        if ($lineNumber =~ /^[1-9]/) {
+          $monitorString = sprintf "%s %10.0f %s %s %s %f %7.3f %-12s %s %10s %s %12s %-9s %03d %10s %12s %-9s %03d", 
+                           $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat,
+                           $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr,
+                           $procjobCluster, $runTime, $procjobStatus, $procrescueCtr;
+          $sedCommand = sprintf "sed '%ds/.*/%s/' %s > %s", 
+                        $lineNumber, $monitorString, $processStatusFile, $tempFile;
+          system $sedCommand;
+
+          $cpCommand = sprintf "cp %s %s", $tempFile, $processStatusFile;
+          system $cpCommand;
+        }
+        #=== Endif GRB has an entry in the monitor file ===#
+
+        #=== Update search status web page ===#
+        $searchStatusTable = {};
+        $searchStatusTable->{'GRB_NAME'}    = $grbName;
+        $searchStatusTable->{'GRB_GPS'}     = $grbGPS;
+        $searchStatusTable->{'GRB_DATE'}    = $grbDate;
+        $searchStatusTable->{'GRB_TIME'}    = $grbTime;
+        $searchStatusTable->{'GRB_RA'}      = $grbRA;
+        $searchStatusTable->{'GRB_DEC'}     = $grbDec;
+        $searchStatusTable->{'GRB_ERR'}     = $grbError;
+        $searchStatusTable->{'IFO_STRING'}  = $ifoString;
+        $searchStatusTable->{'GRB_SAT'}     = $grbSat;
+        $searchStatusTable->{'JOB_CLUSTER'} = $procjobCluster;
+        $searchStatusTable->{'LATENCY'}     = $latency;
+        $searchStatusTable->{'RUN_TIME'}    = $runTime;
+        $searchStatusTable->{'JOB_STATUS'}  = $procjobStatus;
+
+        #foreach $tableKey (keys %$searchStatusTable) {
+        #  printf "%s %s\n", $tableKey, $searchStatusTable->{$tableKey};
+        #}
+
+        updateWebStatus($searchStatusTable,$htmlFile,$lineOffset,$resultsLink,$openboxLink);
+      }
+      #=== Endif condor job was submitted, check on jobs ===#
+    }
+    #=== End loop through GRBs ===#
+
+    close OPENBOX;
+
+#  } else {
+
+    #=== Sleep for a few minutes ===#
+#    sleep $MONDELAY - $currentDelay;
+#  }
+  #=== Endif check if MONDELAY seconds has elapsed since last monitor ===#
+
+  #=== Calculate time elapsed between now and last monitor ===#
+#  $currentDelay = time - $previousTime;
+
+#}
+
+#=== End monitorPostproc ===#

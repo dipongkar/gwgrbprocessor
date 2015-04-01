@@ -1,0 +1,679 @@
+#!/usr/bin/perl -w
+
+require 'exttrig_utils.pl';
+require 'exttrig_params.pl';
+
+#=== Get user name ===#
+$USERNAME = `whoami`;
+chomp($USERNAME);
+
+#=== Specify local working directories ===#
+$HOMEDIR          = sprintf "/home/%s", $USERNAME;
+$SCRIPTSDIR       = sprintf "%s/Online/%s/processor", $HOMEDIR, $LIGORUN;
+$GRBDIR           = sprintf "/%s/grbs", $SCRIPTSDIR, $LIGORUN;
+$JOBSDIR          = sprintf "%s/runs/X", $SCRIPTSDIR;
+$LOGPATH          = sprintf "/usr1/%s/log", $USERNAME;
+$PUBLICDIR        = sprintf "%s/public_html/grb/online/%s/search/notes", $HOMEDIR, $LIGORUN;
+
+#=== Specify input and log files ===#
+$currentGrbFile   = sprintf "%s/grbingracedb_%s.txt", $GRBDIR, $LIGORUN;
+$statusFile       = sprintf "%s/monitor_status_%s.log", $SCRIPTSDIR, $LIGORUN;
+$tempFile         = sprintf "%s/monitor_status_%s_temp.log", $SCRIPTSDIR, $LIGORUN;
+$notesListFile    = sprintf "%s/notes_dates_%s.txt", $SCRIPTSDIR, $LIGORUN;
+$condorCommand1   = "condor_submit_dag grb_alljobs.dag";
+$MAINURL          = sprintf "%s/~%s/web/%s/OnlineGRB_page_%s.html", $PUBSERVER, $USERNAME, $LIGORUN, $LIGORUN;
+
+#=== Some shortcut ===#
+$gridcmd2 = " --gps-start-time ";
+$gridcmd3 = " --gps-end-time ";
+$gridcmd4 = " --url-type file";
+
+#=== Specify .ini file parameters ===#
+$INITEMPLATEFILE = sprintf "%s/params/X/grb_online.ini", $SCRIPTSDIR;
+$LAGFILETOKEN    = 'ndetnsite';
+$LIKELIHOODTOKEN = 'likelihoodTypeString';
+
+#=== Open input file with processed GRBs ===#
+$processedGrbFile = sprintf "%s/processedgrbs_strain_%s.txt", $SCRIPTSDIR, $LIGORUN;
+printf "$processedGrbFile\n";
+
+#=== Minumum number of frames required ===#
+$NFRAMESMIN    = int($SEGDURATION_X/$FRAMELEN);
+#$NFRAMESMINV = int($SEGDURATION_X/$FRAMELENV);
+
+#=== Set start time ===#
+#$currentTime  = time;
+$currentDelay = $TIMEDELAY + 1;
+
+#=== Set initial timestamp of GRB file ===#
+$oldStampGrb = 0;
+
+#=== Unset condor flag ===#
+$condorFlag = 0;
+
+while (1) {
+
+  #=== If ten minutes have elapsed since last scp ===#
+  if ($currentDelay >= $TIMEDELAY) {
+
+    #=== Update time of scp ===#
+    $previousTime = time;
+    $timeString = localtime $previousTime;
+
+    my($sec,$min,$hour,$day,$mon,$year,$wday,$yday,$isdst) = localtime $previousTime;
+
+    $mon  = 1 + $mon;
+    $year = 1900 + $year - 2000;
+
+    #=== Get current time in GPS ===#
+    $nowGPSFloat = `tconvert now`;
+    chomp($nowGPSFloat);
+    $nowGPS = int($nowGPSFloat);
+
+    #=== Open output log file ===#
+    $logFile = sprintf "%s/processgrb_strain_%s_%02d%02d.log", $SCRIPTSDIR, $LIGORUN, $year, $mon;
+
+    open LOGFILE, ">>$logFile"
+      or die "Error opening file $logFile: $!";
+
+    select LOGFILE;
+    $| = 1;
+    select STDOUT;
+
+    if ($oldStampGrb == 0) {
+      printf LOGFILE "Starting processGrb script on %s\n", $timeString;
+    } else {
+      printf LOGFILE "Starting new trigger check on %s\n", $timeString;
+    }
+
+    #=== Read input processed GRBs file ===#
+    if (-e $processedGrbFile) {
+      open PROCESSEDGRB, "<$processedGrbFile"
+        or die "Error opening input log file $processedGrbFile: $!";
+      chomp(@processedGrbs = <PROCESSEDGRB>);
+      close PROCESSEDGRB;
+    } else {
+      @processedGrbs = ();
+    }
+
+    #=== Open output file with processed GRBs ===#
+    open PROCESSEDGRB, ">>$processedGrbFile"
+      or die "Error opening output log file $processedGrbFile: $!";
+
+     select PROCESSEDGRB;
+     $| = 1;
+
+    #=== Open output file with list of GRBs with notes ===#
+    open NOTESFILE, ">>$notesListFile"
+      or die "Error opening output notes list file $notesListFile: $!";
+
+    select NOTESFILE;
+    $| = 1;
+
+    select STDOUT;
+
+    #=== If GRB file exists ===#
+    if (-e $currentGrbFile) {
+
+      #=== Get current time stamp ===#
+      $currentStampGrb = (stat($currentGrbFile))[9];
+
+      #=== If GRB file has been updated since last scp ===#
+      #if ($currentStampGrb > $oldStampGrb) {
+
+        #=== Update timestamp variable ===#
+        $oldStampGrb = $currentStampGrb;
+
+        #=== Open GRB file ===#
+        open GRBFILE, "<$currentGrbFile"
+          or die "Error opening input GRB file $currentGrbFile: $!";
+
+        #=== Read all lines from GRB file ===#
+        #chomp(@inputLinesAll = <GRBFILE>);
+        chomp(@inputLinesAll = reverse <GRBFILE>);
+        close GRBFILE;
+
+        #======================================================================#
+        #                          Loop through GRBs                           #
+        #======================================================================#
+
+        $gctr = 0;
+        @grbNameV       = ();
+        @grbGPSV        = (); 
+        @grbDateV       = ();
+        @grbTimeV       = ();
+        @grbHttpV       = ();
+        @grbRAV         = ();
+        @grbDecV        = ();
+        @grbErrorV      = ();
+        @grbSatV        = ();
+        @grbInsV        = (); 
+        foreach $inputLine (@inputLinesAll) {
+
+          #=== Skip comment lines ===#
+          if ($inputLine =~ /\#/) {
+            next;
+          }
+
+          if ($inputLine =~ /^(\S+)\s+External\s+GRB\s+(\S+)\s+(\S+)\s+(\S+)\s+UTC\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+Satellite,\s+(\S+)\s+Instrument\s*$/) {
+            $grbNameV[$gctr]    = $1;
+            $grbGPSV[$gctr]     = $2;
+            $grbDateV[$gctr]    = $3;
+            $grbTimeV[$gctr]    = $4;
+            $grbHttpV[$gctr]    = $5;
+            $grbRAV[$gctr]      = $6;
+            $grbDecV[$gctr]     = $7;
+            $grbErrorV[$gctr]   = $8;
+            $grbSatV[$gctr]     = $9;
+            $grbInsV[$gctr]     = $10;
+          } else {
+            printf LOGFILE "Error reading GRB file:  $inputLine\n";
+            next;
+          }
+
+          #=== Don't analyze old GRBs ===#
+          if ($grbGPSV[$gctr] < $MINGRBDATE) {
+            next;
+          }
+
+          #=== Dont analyze GRBs with really large position error boxes ===#
+          if ($grbSatV[$gctr] eq 'Fermi') {
+            if ($grbErrorV[$gctr] > $FERMIERRORMAX) { 
+              next;
+            }
+          }
+
+          $processedGrbFlag = 0;
+          #=== Loop through processed GRBs ===#
+          foreach $processedGrb (@processedGrbs) {
+
+            #=== If this GRB has been previously processed ===#
+            if ($processedGrb eq $grbNameV[$gctr]) {
+
+              #=== Set processed GRB flag and exit processed GRB loop ===#
+              $processedGrbFlag = 1;
+              last;
+            }
+          }
+
+          #=== If this GRB has been previously processed ===#
+          if ($processedGrbFlag) {
+
+            #=== Read next GRB ===#
+            next;
+          }
+          $gctr++;
+        }
+
+
+        #======================================================================#
+        #                       End loop through GRBs                          #
+        #======================================================================#
+
+
+        $i      = 0;
+        $gcount = $gctr;
+        for ($gctr = 0; $gctr < $gcount; $gctr++) {
+ 
+          $grbName    = $grbNameV[$gctr];
+          $grbGPS     = $grbGPSV[$gctr];
+          $grbGPS     = int($grbGPS);
+          $grbDate    = $grbDateV[$gctr];
+          $grbTime    = $grbTimeV[$gctr];
+          $grbHttp    = $grbHttpV[$gctr];
+          $grbRA      = $grbRAV[$gctr];
+          $grbDec     = $grbDecV[$gctr];
+          $grbError   = $grbErrorV[$gctr];
+          $grbSat     = $grbSatV[$gctr];
+
+        if ($grbSat eq 'Fermi' && $gctr < $gcount - 1) {
+          if (($grbSatV[$gctr-1] eq 'Swift' && $grbGPS-$grbGPSV[$gctr-1] < 300) or ($grbSatV[$gctr+1] eq 'Swift' && $grbGPSV[$gctr+1]-$grbGPS < 300)) {
+             next;
+          }
+        } 
+
+
+  printf "%s %s %s %10.0f %s %s %s %s %4.5f %4.5f %3.2f %s\n",
+          $grbName, 'External', 'GRB', $grbGPS, $grbDate, $grbTime, 'UTC', $grbHttp, $grbRA, $grbDec, $grbError, $grbSat;
+
+          #=== Unset condor flag ===#
+          $condorFlag = 0;
+
+          #=== Specify default status for web monitor ===#
+          $ifoString  = '--';
+          $jobStatus  = 'DATACUT';
+          $rescueCtr  = 0;
+          $jobCluster = 0;
+          $jobRunTime = '0+00:00:00';
+
+          $gpsTimeNow    = `tconvert now`;
+          $latency = ($gpsTimeNow - $grbGPS)/60;
+          $latency = sprintf("%.2f",$latency);
+           
+          select STDOUT;
+
+          $gpsStart = $grbGPS - $SEGDURATIONLEFT;
+          $gpsEnd   = $gpsStart + $SEGDURATION_X;
+
+          #=== Find LHO frames ===#
+          while (1) {
+            $OBSERVATORY = "H";
+            $gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type H1_".$FRAMETYPE;
+            $command = $gridcmd1.$gridcmd2.$gpsStart.$gridcmd3.$gpsEnd.$gridcmd4;
+            printf LOGFILE "GRB %s:  Running ligo_data_find:  %s\n", $grbName, $command;
+    
+             @frames = ();
+             @frames = `$command`;
+             chomp(@frames);
+
+            #=== If no frame files found ===#
+            if ($#frames + 1 == 0) {
+              printf LOGFILE "GRB %s:  No frame files found for LHO!\n", $grbName;
+              last;
+            } else {
+
+              printf LOGFILE "GRB %s:  %d frame files found for LHO.\n", $grbName, $#frames + 1;
+
+              #=== If not enough frame files found ===#
+              if ($#frames + 1 < $NFRAMESMIN) {
+     
+                #=== Get current GPS seconds ===#
+                $currentGps = `tconvert now`;
+                $gpsDiff = $currentGps - $grbGPS;
+
+                $gpsTimeNow    = `tconvert now`;
+                $latency = ($gpsTimeNow - $grbGPS)/60;
+                $latency = sprintf("%.2f",$latency);
+
+                #=== If less than two hours have elapsed since GRB trigger time ===#
+                if ($gpsDiff < $DATADELAY_X) {
+                  #printf LOGFILE "GRB %s:  Waiting for more LHO data; sleeping for %.3f seconds.\n", $grbName, $DATADELAY_X - $gpsDiff;
+                  printf LOGFILE "GRB %s:  Waiting for more LHO data; sleeping for %.3f seconds.\n", $grbName, $TIMEDELAY;
+                  #sleep $DATADELAY_X - $gpsDiff;
+                  sleep $TIMEDELAY;
+                } else {
+                  printf LOGFILE "GRB %s:  Not enough frame files found for LHO.\n", $grbName;
+                  last;
+                }
+              } else {
+                last;
+              }
+            }
+          }
+          $nFramesH1 = $#frames + 1;
+
+
+          while (1) {
+            $OBSERVATORY = "L";
+            $gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type L1_".$FRAMETYPE;
+            $command = $gridcmd1.$gridcmd2.$gpsStart.$gridcmd3.$gpsEnd.$gridcmd4;
+            printf LOGFILE "GRB %s:  Running ligo_data_find:  %s\n", $grbName, $command;
+
+            @frames = ();
+            @frames = `$command`;
+            chomp(@frames);
+
+            #=== If no frame files found ===#
+            if ($#frames + 1 == 0) {
+              printf LOGFILE "GRB %s:  No frame files found for LLO!\n", $grbName;
+              last;
+            } else {
+
+              printf LOGFILE "GRB %s:  %d frame files found for LLO.\n", $grbName, $#frames + 1;
+
+              #=== If not enough frame files found ===#
+              if ($#frames + 1 < $NFRAMESMIN) {
+     
+                #=== Get current GPS seconds ===#
+                $currentGps = `tconvert now`;
+                $gpsDiff = $currentGps - $grbGPS;
+
+                $gpsTimeNow    = `tconvert now`;
+                $latency = ($gpsTimeNow - $grbGPS)/60;
+                $latency = sprintf("%.2f",$latency);
+
+                #=== If less than two hours have elapsed since GRB trigger time ===#
+                if ($gpsDiff < $DATADELAY_X) {
+                  #printf LOGFILE "GRB %s:  Waiting for more LLO data; sleeping for %.3f seconds.\n", $grbName, $DATADELAY_X - $gpsDiff;
+                  printf LOGFILE "GRB %s:  Waiting for more LLO data; sleeping for %.3f seconds.\n", $grbName, $TIMEDELAY;
+                  #sleep $DATADELAY_X - $gpsDiff;
+                  sleep $TIMEDELAY;
+                } else {
+                  printf LOGFILE "GRB %s:  Not enough frame files found for LLO.\n", $grbName;
+                  last;
+                }
+              } else {
+                last;
+              }
+            }
+          }
+          $nFramesL1 = $#frames + 1;
+
+
+ #         while (1) {
+ #           $OBSERVATORY = "V";
+            #$gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type V1_".$FRAMETYPEV;
+ #           $gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type ".$FRAMETYPEV;
+ #           $command = $gridcmd1.$gridcmd2.$gpsStart.$gridcmd3.$gpsEnd.$gridcmd4;
+ #           printf LOGFILE "GRB %s:  Running ligo_data_find:  %s\n", $grbName, $command;
+
+ #           @frames = ();
+ #           @frames = `$command`;
+ #           chomp(@frames);
+
+            #=== If no frame files found ===#
+ #           if ($#frames + 1 == 0) {
+ #             printf LOGFILE "GRB %s:  No frame files found for VRG!\n", $grbName;
+ #             last;
+ #           } else {
+
+ #             printf LOGFILE "GRB %s:  %d frame files found for VRG.\n", $grbName, $#frames + 1;
+
+              #=== If not enough frame files found ===#
+ #             if ($#frames + 1 < $NFRAMESMINV) {
+     
+                #=== Get current GPS seconds ===#
+ #               $currentGps = `tconvert now`;
+ #               $gpsDiff = $currentGps - $grbGPS;
+
+                #=== If less than two hours have elapsed since GRB trigger time ===#
+ #               if ($gpsDiff < $DATADELAY_X) {
+ #                 printf LOGFILE "GRB %s:  Waiting for more VRG data; sleeping for %.3f seconds.\n", $grbName, $DATADELAY_X- $gpsDiff;
+ #                 sleep $DATADELAY_X - $gpsDiff;
+ #               } else {
+ #                 printf LOGFILE "GRB %s:  Not enough frame files found for VRG.\n", $grbName;
+ #                 last;
+ #               }
+ #             } else {
+ #               last;
+ #             }
+ #           }
+ #         }
+ #         $nFramesV1 = $#frames + 1;
+
+
+
+#          if (($nFramesH1 >= $NFRAMESMIN    && ($nFramesL1 >= $NFRAMESMIN || $nFramesV1 >= $NFRAMESMINV)) ||
+          if ($nFramesH1 >= $NFRAMESMIN   && $nFramesL1 >= $NFRAMESMIN) {
+#              ($nFramesL1 >= $NFRAMESMIN    && ($nFramesH1 >= $NFRAMESMIN || $nFramesV1 >= $NFRAMESMINV)) ||
+#              ($nFramesV1 >= $NFRAMESMINV && ($nFramesH1 >= $NFRAMESMIN || $nFramesL1 >= $NFRAMESMIN))) {
+
+            #=== Set condor flag ===#
+            $condorFlag = 1;
+
+          } else {
+            $jobStatus = 'NOFRAMES';
+          }
+
+          #=== Determine IFOs with science segments ===#
+          @netIfos  = ();
+          $gpsStart = int($grbGPS - $SEGDURATIONLEFT);
+          #$gpsStart = int($grbGPS - $SEGDURATIONLEFT);
+          $gpsEnd   = $gpsStart + $SEGDURATION_X;
+          #$gpsEnd   = $gpsStart + 2*$SEGDURATION_X;
+          printf "$gpsStart $gpsEnd\n";
+          @netIfos = findIFONetwork($LIGORUN,\@ALLIFOS,$grbGPS,$gpsStart,$gpsEnd,$SEGDURATION_X,\@SEGMENTTYPE,$SEGSERVER);
+         
+          if ($condorFlag) {
+
+            #=== Check that there are at least two available networks ===#
+            if ($#netIfos + 1 >= 2) {
+
+              #=== Check that frames are available ===#
+              foreach $ifo (@netIfos) {
+                $nFramesIFO = 0;
+                $nFramesIFO = eval sprintf "\$nFrames%s", $ifo;
+                if ($ifo ne 'V1') {
+                  if ($nFramesIFO < $NFRAMESMIN) {
+                    $jobStatus = 'NOFRAMES';
+                  }
+                }
+ #               } else {
+ #                 if ($nFramesIFO < $NFRAMESMINV) {
+ #                   $jobStatus = 'NOFRAMES';
+ #                 }
+ #               }
+              }
+
+              #=== If frames are available ===#
+              if ($jobStatus ne 'NOFRAMES') {
+
+                #=== Write processed GRB to file ===#
+                printf PROCESSEDGRB "%s\n", $grbName;
+                $processedGrbs[$#processedGrbs+1] = sprintf "%s", $grbName;
+
+                #=== Change working directory ===#
+                $jobGrbDir = sprintf "GRB%s", $grbName;
+                $jobDir    = sprintf "%s/%s", $JOBSDIR, $jobGrbDir;
+                $mkdirResult = 0;
+                if (! -e $jobDir) {
+                  $mkdirCommand = sprintf "mkdir %s", $jobDir;
+                  $mkdirResult  = 1;
+                  $mkdirResult  = system "$mkdirCommand";
+                }
+
+
+                if ($mkdirResult == 0) { 
+                  $gpsTimeNow    = `tconvert now`;
+                  $latency = ($gpsTimeNow - $grbGPS)/60;
+                  $latency = sprintf("%.2f",$latency);
+
+                  #=== Prepare .ini file ===#
+                  $iniFile = sprintf "%s/grb_online.ini", $jobDir;
+                  $ifoString = configIFONetwork(\@netIfos,$jobGrbDir,
+                               $INITEMPLATEFILE,$iniFile,$LAGFILETOKEN,$LIKELIHOODTOKEN);
+                  $detectorString = '';
+                  foreach $netIfo (@netIfos) {
+                    $detectorString = sprintf "%s --detector %s", $detectorString, $netIfo;
+                  }
+
+
+                  #=== Prepare condor command ===#
+                  $condorCommand = sprintf "condor_submit_dag grb_alljobs.dag";
+                  chdir "$jobDir";
+
+                  $prepCommand = sprintf "grb.py \\
+                     --params-file %s/grb_online.ini \\
+                     --grb-name $grbName \\
+                     --grb-time $grbGPS \\
+                     --right-ascension $grbRA --declination $grbDec \\
+                     -e $grbError \\
+                     %s -s --priority 20", $jobDir, $detectorString;
+                    # %s -s --priority 20", $jobDir, $detectorString;
+
+printf "$prepCommand\n";
+
+                  $prepResult = 1;
+                  $prepResult = system $prepCommand;
+
+
+                  #=== Put (ER6) resource allocation to sub files #
+                  $XSEARCH_SUB = sprintf "xsearch.sub";
+                  $XMERGE_SUB  = sprintf "xmerge.sub";
+                  $sedCommand_xsearch = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_Burst_GRB =?= True)\\n+Online_Burst_GRB = True/g' %s", $XSEARCH_SUB;
+                  system $sedCommand_xsearch;
+                  $sedCommand_xmerge = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_Burst_GRB =?= True)\\n+Online_Burst_GRB = True/g' %s", $XMERGE_SUB;
+                  system $sedCommand_xmerge;                 
+                  ###################################################
+ 
+                  #=== Submit condor jobs ===#
+                  if ($prepResult == 0) {
+                    $currentTime = time;
+                    $timeString = localtime $currentTime;
+                    printf LOGFILE "GRB %s:  Submitting condor jobs on %s.\n", $grbName, $timeString;
+                    $jobCluster   = 0;
+                    @condorResult = ();
+                    @condorResult = `$condorCommand`;
+                    chomp(@condorResult);
+                    foreach $condorLine (@condorResult) {
+                      if ($condorLine =~ /cluster (\d+)/) {
+                        $jobCluster = $1;
+                        last;
+                      }
+                    }
+                    if ($jobCluster != 0) {
+                      printf "condor command for GRB %s successfully launched on cluster %d\n", $grbName, $jobCluster;
+                      $jobStatus = 'SUBMITTED';
+                    }
+                  }
+                  #=== Endif prepResult ===#
+
+                  chdir "$SCRIPTSDIR";
+                }
+                #=== Endif mkdirResult ===#
+              }
+              #=== Endif frames are available ===#
+            }
+            #=== Endif two or more available IFOS ===#
+          }
+          #=== Endif condorFlag ===#
+
+          if ($ifoString eq '--' && $#netIfos + 1 > 0) {
+            $ifoString = '';
+            foreach $ifo (@netIfos) {
+              $ifoString = "$ifoString"."$ifo";
+            }
+          }
+
+          if ($#netIfos + 1 == 0 || $#netIfos + 1 == 1) {
+            #=== Write processed GRB to file ===#
+            printf PROCESSEDGRB "%s\n", $grbName;
+            $processedGrbs[$#processedGrbs+1] = sprintf "%s", $grbName;
+          }
+          
+          #=== Write out status for this GRB ===#
+
+          #=== Check if this GRB has an entry in the output monitor file ===#
+          $sedCommand = sprintf "sed -n '/^%s /=' %s", $grbName, $statusFile;
+          $lineNumber = -1;
+          if (-e $statusFile) {
+            $lineNumber = `$sedCommand`;
+            chomp($lineNumber);
+          }
+ 
+          $grbDate    = `tconvert $grbGPS -f %Y-%m-%d`;
+          chomp($grbDate);
+          $grbTime    = `tconvert $grbGPS -f %T`;
+          chomp($grbTime);
+
+#          $gpsTimeNow    = `tconvert now`;
+#          $latency = $gpsTimeNow - $grbGPS;          
+         
+
+          if ($lineNumber =~ /^[1-9]/) {
+            $monitorString = sprintf "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %s %s %s %s %03d",
+                             $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat,
+                             $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
+            $sedCommand = sprintf "sed '%ds/.*/%s/' %s > %s",
+                          $lineNumber, $monitorString, $statusFile, $tempFile;
+            system $sedCommand;
+
+            $cpCommand = sprintf "cp %s %s", $tempFile, $statusFile;
+            system $cpCommand;
+          } else {
+          #=== Endif GRB has an entry in the monitor file ===#
+
+            #=== Open output job status file ===#
+            open STATFILE, ">>$statusFile"
+              or die "Error opening file $statusFile: $!";
+
+            select STATFILE;
+            $| = 1;
+            select STDOUT;
+
+            printf STATFILE "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %s %s %s %s %03d\n",
+                   $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
+            close STATFILE;
+          }
+
+          #=== Note current time ===#
+          $gpsTime    = `tconvert now`;
+          chomp($gpsTime);
+#          $gpsTime    = 1058716992;
+          $timeString = `tconvert $gpsTime`;
+          chomp($timeString);
+
+
+          #=== Calculate processing time in hours ===#
+          $processTime = 0;
+          $processTime = ($gpsTime - $grbGPS)/3600.0;
+          if ($processTime < 0) {
+            $processTime = 0;
+          }
+
+          createGrbNotes($grbName,$grbGPS,$grbDate,$grbTime,$grbHttp,
+                         $grbRA,$grbDec,$grbError,$PUBLICDIR);
+
+          printf NOTESFILE "%s\n", $grbName;
+
+          &sendStatusMessage;
+
+          #=== Increment GRB counter ===#
+          $i++;
+        }
+
+        #======================================================================#
+        #                       End loop through GRBs                          #
+        #======================================================================#
+
+      #}
+      #=== Endif timestamp check ===#
+
+    } else {
+      printf LOGFILE "Input GRB file $currentGrbFile does not exist.\n";
+    }
+    #=== Endif check if GRB file exists ===#
+
+    close NOTESFILE;
+    close PROCESSEDGRB;
+
+  } else {
+
+    #=== Sleep for a few minutes ===#
+    $timeString = localtime;
+    printf LOGFILE "Starting sleep on %s.\n", $timeString;
+    close LOGFILE;
+    sleep $TIMEDELAY - $currentDelay;
+  }
+  #=== Endif check if ten minutes have elapsed since last scp ===#
+
+  #=== Calculate time elapsed between now and last scp ===#
+  $currentDelay = time - $previousTime;
+
+}
+
+sub sendStatusMessage {
+
+  $emailsFile   = sprintf "%s/grbemails.txt", $SCRIPTSDIR;
+  $messagesFile = sprintf "%s/grbmessages_%s.log", $SCRIPTSDIR, $LIGORUN;
+
+  $eheaderTable = {};
+  $eheaderTable->{'SUBJECT'} = sprintf "[X-pipeline] GRB %s %s", $grbName, $jobStatus;
+
+  #=== Construct the message ===#
+  if ($jobStatus eq 'SUBMITTED') {
+    $noticeString = sprintf "GRB %s has been %s, %8.3f hours after the trigger.",
+                                 $grbName, $jobStatus, $processTime;
+  } else {
+    if ($jobStatus eq 'DATACUT' || $jobStatus eq 'NOFRAMES') {
+      $noticeString = sprintf "GRB %s cannot be analyzed, %8.3f hours after the trigger.",
+                                   $grbName, $processTime;
+    } else {
+      if ($jobStatus eq 'LARGEERR') {
+        $noticeString = sprintf "GRB %s has a large position error, will not be analyzed.",
+                                     $grbName;
+      }
+    }
+  }
+  $noticeString = sprintf "%s\n\nMain results page:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>\n", $noticeString, $MAINURL;
+
+  $eheaderTable->{'MESSAGE'} = $noticeString;
+
+  printf "$noticeString\n";
+
+  #=== Send the message ===#
+  grbNotify($eheaderTable,$emailsFile,$messagesFile);
+}
+
+#=== End xprocessGrb ===#

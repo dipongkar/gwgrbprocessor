@@ -1,0 +1,58 @@
+#!/usr/bin/perl
+
+require 'exttrig_params.pl';
+
+#=== Get user name ===#
+$USERNAME = `whoami`;
+chomp($USERNAME);
+
+#=== Specify local working directories ===#
+$HOMEDIR    = sprintf "/home/%s", $USERNAME;
+$SCRIPTSDIR = sprintf "%s/Online/%s/processor", $HOMEDIR, $LIGORUN;
+printf "$SCRIPTSDIR\n";
+
+#=== Specify monitor commands ===#
+$monitorGrb      = sprintf "%s/XmonitorGRB", $SCRIPTSDIR;
+$monitorPostproc = sprintf "%s/XmonitorPostproc", $SCRIPTSDIR;
+$monitorOpenbox  = sprintf "%s/XmonitorOpenbox", $SCRIPTSDIR;
+$monitorGrbcbc      = sprintf "%s/CBCmonitorGRB", $SCRIPTSDIR;
+$monitorPostproccbc = sprintf "%s/CBCmonitorPostproc", $SCRIPTSDIR;
+$monitorOpenboxcbc  = sprintf "%s/CBCmonitorOpenbox", $SCRIPTSDIR;
+
+printf "$monitorGrb\n";
+printf "$monitorPostproc\n";
+printf "$monitorGrbcbc\n";
+printf "$monitorPostproccbc\n";
+
+#=== Set start time ===#
+$currentDelay = $MONDELAY + 1;
+
+while (1) {
+
+  #=== If MONDELAY seoconds has elapsed since last monitor ===#
+  if ($currentDelay >= $MONDELAY) {
+
+    #=== Update time of monitor ===#
+    $previousTime = time;
+
+    #=== Execute monitors ===#
+    system $monitorGrb;
+    system $monitorPostproc;
+    system $monitorOpenbox;
+    system $monitorGrbcbc;
+    system $monitorPostproccbc;
+    system $monitorOpenboxcbc;
+  } else {
+
+printf "Sleeping...\n";
+    #=== Sleep for a few minutes ===#
+    sleep $MONDELAY - $currentDelay;
+
+  }
+  #=== Endif check if MONDELAY seconds has elapsed since last monitor ===#
+
+  #=== Calculate time elapsed between now and last monitor ===#
+  $currentDelay = time - $previousTime;
+
+}
+#=== End monitorJobs ===#

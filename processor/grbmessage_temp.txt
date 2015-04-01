@@ -1,0 +1,9 @@
+To: talukder@uoregon.edu
+From: ExtTrig <grb.exttrig@ldas-grid.ligo.caltech.edu>
+Reply-to: Dipongkar Talukder <talukder@uoregon.edu>
+Subject: [X-pipeline] GRB E124548 SUBMITTED
+GRB E124548 has been SUBMITTED, 2515.417 hours after the trigger.
+
+Main results page:
+<https://ldas-jobs.ligo.caltech.edu/~grb.exttrig/web/preER7/OnlineGRB_page_preER7.html>
+
