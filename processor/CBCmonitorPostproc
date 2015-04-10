@@ -19,7 +19,11 @@ $SCRIPTSDIR = sprintf "%s/Online/%s/processor", $HOMEDIR, $LIGORUN;
 $WEBDIR     = sprintf "%s/Online/%s/processor/web", $HOMEDIR, $LIGORUN;
 $JOBSDIR    = sprintf "%s/runs/CBC", $SCRIPTSDIR;
 $PARAMSDIR  = sprintf "%s/params/CBC", $SCRIPTSDIR;
-$RESULTSURL = sprintf "%s/~%s/grb/online/%s", $PUBSERVER, $USERNAME, $LIGORUN;
+$PUBSERVER_SED = $PUBSERVER;
+my $find = "//";
+my $replace = "\\/\\/";
+$PUBSERVER_SED =~s/$find/$replace/g;
+$RESULTSURL = sprintf "%s\\/~%s\\/grb\\/online\\/%s", $PUBSERVER_SED, $USERNAME, $LIGORUN;
 
 #=== Specify output html file ===#
 $htmlFile = sprintf "%s/OnlineGRB_page_%s.html", $WEBDIR, $LIGORUN;

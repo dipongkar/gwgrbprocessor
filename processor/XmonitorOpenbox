@@ -13,7 +13,11 @@ $GRBDIR     = sprintf "%s/Online/%s/grbs", $HOMEDIR, $LIGORUN;
 $SCRIPTSDIR = sprintf "%s/Online/%s/processor", $HOMEDIR, $LIGORUN;
 $WEBDIR     = sprintf "%s/Online/%s/processor/web", $HOMEDIR, $LIGORUN;
 $JOBSDIR    = sprintf "%s/runs/X", $SCRIPTSDIR;
-$RESULTSURL = sprintf "%s/~%s/grb/online/%s/search/results", $PUBSERVER, $USERNAME, $LIGORUN;
+$PUBSERVER_SED = $PUBSERVER;
+my $find = "//";
+my $replace = "\\/\\/";
+$PUBSERVER_SED =~s/$find/$replace/g;
+$RESULTSURL = sprintf "%s\\/~%s\\/grb\\/online\\/%s\\/search\\/results", $PUBSERVER_SED, $USERNAME, $LIGORUN;
 $PUBLICDIR  = sprintf "%s/public_html/grb/online/%s/search/results", $HOMEDIR, $LIGORUN;
 $MAINWEBDIR = sprintf "%s/~%s/grb/online/%s", $PUBSERVER, $USERNAME, $LIGORUN;
 $MAINURL    = sprintf "%s/~%s/web/%s/OnlineGRB_page_%s.html", $PUBSERVER, $USERNAME, $LIGORUN, $LIGORUN;
@@ -147,7 +151,7 @@ foreach $openboxJob (@openboxJobs) {
          $rmCommand = sprintf "rm -f annotateGraceDB_temp.py";
          system $rmCommand;
          $annotateCommand = sprintf "python annotateGraceDB.py";
-         system $annotateCommand;
+         #system $annotateCommand;
          $rmCommand = sprintf "rm -f annotateGraceDB.py";
          system $rmCommand;
        } else {
@@ -155,7 +159,7 @@ foreach $openboxJob (@openboxJobs) {
          $catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB.py", $annotateFile, $grbName;
          system $catCommand1;
          $annotateCommand = sprintf "python annotateGraceDB.py";
-         system $annotateCommand;
+         #system $annotateCommand;
          $rmCommand = sprintf "rm -f annotateGraceDB.py";
          system $rmCommand;
       }
