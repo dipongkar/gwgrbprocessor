@@ -1,9 +1,12 @@
 #!/usr/bin/perl
 
-use Switch;
+#use Switch;
+#use strict;
+use warnings;
+use feature qw(switch say);
 
-require 'exttrig_utils.pl';
-require 'exttrig_params.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_utils.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_params.pl';
 
 #=== Get user name ===#
 $USERNAME = `whoami`;
@@ -23,7 +26,8 @@ my $find = "//";
 my $replace = "\\/\\/";
 $PUBSERVER_SED =~s/$find/$replace/g;
 $RESULTSURL = sprintf "%s\\/~%s\\/grb\\/online\\/%s\\/search\\/results", $PUBSERVER_SED, $USERNAME, $LIGORUN;
-
+$MAINWEBDIR = sprintf "%s/~%s/grb/online/%s", $PUBSERVER, $USERNAME, $LIGORUN;
+$MAINURL    = sprintf "%s/~%s/web/%s/OnlineGRB_page_%s.html", $PUBSERVER, $USERNAME, $LIGORUN, $LIGORUN;
 #=== Specify output html file ===#
 $htmlFile = sprintf "%s/OnlineGRB_page_%s.html", $WEBDIR, $LIGORUN;
 
@@ -64,7 +68,7 @@ $currentDelay = $MONDELAY + 1;
 
     #=== Loop through GRBs ===#
     foreach $procStat (@procStats) {
-      ($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,
+      ($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$grbTrigDur,
        $jobCluster,$latency,$jobRunTime,$jobStatus,$rescueCtr,$procjobCluster,$runTime,$procjobStatus,$procrescueCtr) = split(' ',$procStat);
 
       #=== Set default results link ===#
@@ -75,13 +79,14 @@ $currentDelay = $MONDELAY + 1;
 
       #=== If condor job was submitted, check on jobs ===#
       if ($procjobStatus ne 'PROCESSED' && $jobStatus ne 'DATACUT' && $jobStatus ne 'RESCUE') {
-        $condorCommand = sprintf "condor_q %d", $procjobCluster;
+        $condorCommand = sprintf "condor_q -nobatch %d", $procjobCluster;
         @condorResult  = ();
         @condorResult  = `$condorCommand`;
         chomp(@condorResult);
 
         #=== If job is not found ===#
-        if ($#condorResult < 4) {
+        #if ($#condorResult < 4) {
+        if ($#condorResult < 6) {
           printf "number of lines = $#condorResult\n";
           $failFetchFlag = 0;
           if ($#condorResult+1 == 0) {
@@ -133,7 +138,23 @@ $currentDelay = $MONDELAY + 1;
               $procjobStatus = 'PROCESSED';
               #=== Specify link with results ===#
               $resultsLink = sprintf "%s\\/%s_online\\/%s_online_closedbox.shtml", $RESULTSURL, $grbName, $grbName;
+              
+              &sendResultsMessage;
 
+              #==== Generate checklist =====#
+              #$X_grb_params = sprintf "/home/grb.exttrig/public_html/grb/online/checklist/X_grb_params.txt";
+              #open GRBPARAM, ">$X_grb_params"
+              #           or die "Error opening checklist GRB param file $X_grb_params: $!";
+              #printf GRBPARAM "%s %s %s %s %s %s %s %s\n", $grbName, $grbGPS, $grbRA, $grbDec, $grbError, $X_VERSION, $X_POST_VERSION, $ifoString;
+              #close GRBPARAM;
+              
+              #$checklistdir = sprintf "/home/grb.exttrig/public_html/grb/online/checklist";
+              #chdir "$checklistdir";
+
+              #$generateChecklist = sprintf "python X_generate_checklist.py";
+              #system $generateChecklist; 
+              #==== End checklit ======# 
+               
               #===      Open the box      ===#
               #=== Prepare condor command ===#
               $condorCommand = sprintf "condor_submit xmakegrbwebpage_open.sub";
@@ -158,7 +179,8 @@ $currentDelay = $MONDELAY + 1;
           }
         } else {
           #=== Parse the condor_q output ===#
-          $condorLine = $condorResult[$#condorResult];
+          #$condorLine = $condorResult[$#condorResult];
+          $condorLine = $condorResult[$#condorResult-2];
           ($clusterID,$ownerName,$submitDate,$submitTime, 
              $runTime,$runStatus,$runPriority,$runSize,$runCommand) = 
                split(' ',$condorLine);
@@ -166,10 +188,14 @@ $currentDelay = $MONDELAY + 1;
           printf "$runTime $runStatus $runPriority $runSize $runCommand\n";
 
           #=== Specify job status explicitly ===#
-          switch ($runStatus) {
-            case 'R' { $procjobStatus = 'RUNNING'; }
-            case 'I' { $procjobStatus = 'IDLE';    }
-            case 'H' { $procjobStatus = 'HELD';    }
+          #switch ($runStatus) {
+          #  case 'R' { $procjobStatus = 'RUNNING'; }
+          #  case 'I' { $procjobStatus = 'IDLE';    }
+          #  case 'H' { $procjobStatus = 'HELD';    }
+          given ($runStatus) {
+            when ('R') { $procjobStatus = 'RUNNING'; }
+            when ('I') { $procjobStatus = 'IDLE';    }
+            when ('H') { $procjobStatus = 'HELD';    }
           }
         }
 
@@ -180,8 +206,8 @@ $currentDelay = $MONDELAY + 1;
         chomp($lineNumber);
 
         if ($lineNumber =~ /^[1-9]/) {
-          $monitorString = sprintf "%s %10.0f %s %s %s %f %7.3f %-12s %s %10s %s %12s %-9s %03d %10s %12s %-9s %03d", 
-                           $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat,
+          $monitorString = sprintf "%s %10.0f %s %s %s %f %7.3f %-12s %s %7.3f %10s %s %12s %-9s %03d %10s %12s %-9s %03d", 
+                           $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $grbTrigDur,
                            $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr,
                            $procjobCluster, $runTime, $procjobStatus, $procrescueCtr;
           $sedCommand = sprintf "sed '%ds/.*/%s/' %s > %s", 
@@ -204,6 +230,7 @@ $currentDelay = $MONDELAY + 1;
         $searchStatusTable->{'GRB_ERR'}     = $grbError;
         $searchStatusTable->{'IFO_STRING'}  = $ifoString;
         $searchStatusTable->{'GRB_SAT'}     = $grbSat;
+        $searchStatusTable->{'TRIG_DUR'}    = $grbTrigDur;
         $searchStatusTable->{'JOB_CLUSTER'} = $procjobCluster;
         $searchStatusTable->{'LATENCY'}     = $latency;
         $searchStatusTable->{'RUN_TIME'}    = $runTime;
@@ -220,6 +247,65 @@ $currentDelay = $MONDELAY + 1;
     #=== End loop through GRBs ===#
 
     close OPENBOX;
+
+sub sendResultsMessage {
+
+  $emailsFile   = sprintf "%s/eventadvocate/%s_grbemails.txt", $SCRIPTSDIR, $grbName;
+  $messagesFile = sprintf "%s/grbmessages_%s.log", $SCRIPTSDIR, $LIGORUN;
+
+  #=== Specify pages with results ===#
+  $resultsPageClosed = sprintf "%s/search/results/%s_online/%s_online_closedbox.shtml", $MAINWEBDIR, $grbName, $grbName;
+  $resultsPageOpen   = '';
+
+  #=== Note finish time of analysis ===#
+  $gpsTime    = `lalapps_tconvert now`;
+  chomp($gpsTime);
+
+  #=== Calculate processing time in hours ===#
+  $processTime = 0;
+  $processTime = ($gpsTime - $grbGPS)/3600.0;
+  $processTime = sprintf "%5.3f", $processTime;
+  if ($processTime < 0) {
+    $processTime = 0;
+   }
+
+  $eheaderTable = {};
+  $eheaderTable->{'SUBJECT'} = sprintf "[X-pipeline] GRB %s processed", $grbName;
+
+  #=== Construct the message ===#
+  $noticeString = sprintf "GRB %s has been processed, %8.3f hours after the trigger.", 
+                               $grbName, $processTime;
+         if ($ANNOTATEFLAG eq 'YES') {
+         $annotateFile = sprintf "%s/annotateGraceDB_X_offsource_template.py", $SCRIPTSDIR;
+         $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/USERNAME/%s/g' -e 's/LIGORUN/%s/g' -e 's/PUBSERVER/%s/g'> annotateGraceDB.py", $annotateFile, $grbName, $USERNAME, $LIGORUN, $PUBSERVER_SED;
+         system $catCommand;
+         $annotateCommand = sprintf "python annotateGraceDB.py";
+         system $annotateCommand;
+         $rmCommand = sprintf "rm -f annotateGraceDB.py";
+         system $rmCommand; 
+
+         $annotateFile = sprintf "%s/logGraceDB_X_end_template.py", $SCRIPTSDIR;
+         $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/HOUR/%s/g'> logGraceDB.py", $annotateFile, $grbName, $processTime;
+         system $catCommand;
+         $logCommand = sprintf "python logGraceDB.py";
+         system $logCommand;
+         $rmCommand = sprintf "rm -f logGraceDB.py";
+         system $rmCommand;
+         }
+  $noticeString = sprintf "%s\n\nClosed box results:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>", $noticeString, $resultsPageClosed;
+  $noticeString = sprintf "%s\n\nOpen box results:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>", $noticeString, $resultsPageOpen;
+  $noticeString = sprintf "%s\n\nMain results page:", $noticeString;
+  $noticeString = sprintf "%s\n<%s>\n", $noticeString, $MAINURL;
+
+  $eheaderTable->{'MESSAGE'} = $noticeString;
+
+  printf "$noticeString\n";
+
+  #=== Send the message ===#
+  grbNotify($eheaderTable,$emailsFile,$messagesFile);
+}
 
 #  } else {
 

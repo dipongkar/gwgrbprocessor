@@ -24,18 +24,9 @@ sub findIFONetwork {
 
   $iifo = 0;
   foreach $ifo (@$ifos) {
-    #=== If science run is post-S5 use new segment commands ===#
-#    if ($runNumber > 5) {
-    #  $segFindCommand = sprintf "ligolw_dq_query --segment %s --include-segments %s:%s", $dataServer, $ifo, uc(@$segmentType[$iifo]);
-    #  $segFindCommand = sprintf "%s --report %d --start-pad %d --end-pad %d", $segFindCommand, $gpsGPS, $startPad, $endPad;
-     # `S6_SEGMENT_SERVER=https://segdb-er.ligo.caltech.edu`;
-#      $segFindCommand = sprintf "ligolw_segment_query --segment %s --include-segments %s:%s", $dataServer, $ifo, uc(@$segmentType[$iifo]);
       $segFindCommand = sprintf "ligolw_segment_query_dqsegdb --segment %s --include-segments %s:%s", $dataServer, $ifo, uc(@$segmentType[$iifo]);
       $segFindCommand = sprintf "%s --gps-start-time %d --gps-end-time %d --query-segments", $segFindCommand, $gpsStart, $gpsEnd;
-#    } else {
-#      $segFindCommand = sprintf "LSCsegFind --server=%s --interferometer %s --type %s", $dataServer, $ifo, @$segmentType[$iifo];
-#      $segFindCommand = sprintf "%s --gps-start-time %d --gps-end-time %d", $segFindCommand, $gpsStart, $gpsEnd;
-#    }
+
 
     printf "$segFindCommand\n";
 
@@ -43,38 +34,14 @@ sub findIFONetwork {
     @segResults = `$segFindCommand`;
     chomp(@segResults);
 
-    #foreach $segResult (@segResults) {
-    #  printf "$segResult\n";
-    #}
-
     $invalidSegmentFlag = 0;
     #=== If science run is post-S5 use new segment commands ===#
-#    if ($runNumber > 5) {
       my($segStartRef,$segEndRef,$totalSegDuration) = parseSegmentsXml(\@segResults);
       my(@segGpsStart) = @$segStartRef;
       my(@segGpsEnd)   = @$segEndRef;
-      #if ($#segResults + 1 == 1) {
-      #  if ($segResults[0] =~ /[.*)/) {
-      #    push(@netIfos,$ifo);
-      #  }
-      #}
       if ($#segGpsStart + 1 == 1 && $totalSegDuration >= $minDuration) {
         push(@netIfos,$ifo);
       }
-#    } else {
-#      if ($#segResults + 1 > 0) {
-#        foreach $segResult (@segResults) {
-#          ($segStart,$segEnd) = split(/ /,$segResult);
-#          if ($segEnd - $segStart < $searchDuration) {
-#            $invalidSegmentFlag = 1;
-#            last;
-#          }
-#        }
-#        if ($invalidSegmentFlag == 0) {
-#          push(@netIfos,$ifo);
-#        }
-#      }
-#    }
     $iifo++;
   }
   return @netIfos;
@@ -82,7 +49,10 @@ sub findIFONetwork {
 
 sub querySegments {
 
-  use Switch;
+  #use Switch;
+  #use strict;
+  use warnings;
+  use feature qw(switch say);
 
   my($ligoRun)       = $_[0];
   my($ifos)          = $_[1];
@@ -112,33 +82,23 @@ sub querySegments {
   my(@segmentFlag) = ();
   foreach $ifo (@$ifos) {
     $inet = -1;
-    switch ($ifo) {
-      case 'H1'
+    #switch ($ifo) {
+    given ($ifo) {
+      #case 'H1'
+      when ('H1')
       {
         $inet = 0;
       }
-      case 'L1'
+      #case 'L1'
+      when ('L1')
       {
         $inet = 1;
       }
-#      case 'V1'
-#      {
-#        $inet = 2;
-#      }
     }
+
     $segmentFlag[$iifo] = 0;
-    #=== If science run is post-S5 use new segment commands ===#
-#    if ($runNumber > 5) {
-    #  $segFindCommand = sprintf "ligolw_dq_query --segment %s --include-segments %s:%s", $dataServer, $ifo, uc(@$segmentType[$inet]);
-    #  $segFindCommand = sprintf "%s --report %d --start-pad %d --end-pad %d", $segFindCommand, $gpsGPS, $startPad, $endPad;
-     # `S6_SEGMENT_SERVER=https://segdb-er.ligo.caltech.edu`;
-#      $segFindCommand = sprintf "ligolw_segment_query --segment %s --include-segments %s:%s", $dataServer, $ifo, uc(@$segmentType[$inet]);
       $segFindCommand = sprintf "ligolw_segment_query_dqsegdb --segment %s --include-segments %s:%s", $dataServer, $ifo, uc(@$segmentType[$inet]);
       $segFindCommand = sprintf "%s --gps-start-time %d --gps-end-time %d --query-segments", $segFindCommand, $gpsStart, $gpsEnd;
-#    } else {
-#      $segFindCommand = sprintf "LSCsegFind --server=%s --interferometer %s --type %s", $dataServer, $ifo, @$segmentType[$inet];
-#      $segFindCommand = sprintf "%s --gps-start-time %d --gps-end-time %d", $segFindCommand, $gpsStart, $gpsEnd;
-#    }
 
     printf "$segFindCommand\n";
 
@@ -148,35 +108,16 @@ sub querySegments {
 
     $invalidSegmentFlag = 0;
     #=== If science run is post-S5 use new segment commands ===#
-#    if ($runNumber > 5) {
       my($segStartRef,$segEndRef,$totalSegDuration) = parseSegmentsXml(\@segResults);
       my(@segGpsStart) = @$segStartRef;
       my(@segGpsEnd)   = @$segEndRef;
-      #if ($#segResults + 1 == 1) {
-      #  if ($segResults[0] =~ /[.*)/) {
-      #    push(@netIfos,$ifo);
-      #  }
-      #}
       if ($totalSegDuration >= $minDuration) {
         $segmentFlag[$iifo] = 1;
         if ($writeSegsFlag == 1) {
           &writeSegments($jobDir,$ifo,\@segGpsStart,\@segGpsEnd);
         }
       }
-#    } else {
-#      if ($#segResults + 1 > 0) {
-#        foreach $segResult (@segResults) {
-#          ($segStart,$segEnd) = split(/ /,$segResult);
-#          if ($segEnd - $segStart < $searchDuration) {
-#            $invalidSegmentFlag = 1;
-#            last;
-#          }
-#        }
-#        if ($invalidSegmentFlag == 0) {
-#          push(@netIfos,$ifo);
-#        }
-#      }
-#    }
+
     $iifo++;
   }
   return @segmentFlag;
@@ -186,9 +127,6 @@ sub parseSegmentsXml {
 
   my($xmlTable) = $_[0];
 
-# (20130922)
-#  my($streamStart) = 'Stream Name="segment:table"';  
-# (20140506) 
   my($streamStart) = 'Stream Delimiter="," Type="Local" Name="segment:table"';
   my($streamEnd)   = '/Stream';
   my(@segStart)    = ();
@@ -240,14 +178,15 @@ sub writeSegments {
 
 sub configIFONetwork {
  
-  use Switch;
+  #use Switch;
+  #use strict;
+  use warnings;
+  use feature qw(switch say);
 
   my($netIfosRef)      = $_[0];
   my($jobDir)          = $_[1];
-  my($iniTemplateFile) = $_[2];
-  my($iniFile)         = $_[3];
-  my($lagFileToken)    = $_[4];
-  my($likelihoodToken) = $_[5];
+  my($lagFileToken)    = $_[2];
+  my($likelihoodToken) = $_[3];
 
   my($ifoString,$ifo,$lagFile,$likelihoodType,$nifos,$sedCommand);
 
@@ -258,62 +197,16 @@ sub configIFONetwork {
     $ifoString = "$ifoString"."$ifo";
   }
 
-  $lagFile        = '';
-  $likelihoodType = '';
-  $nifos = $#netIfos+1;
-  switch ($nifos) {
-    case 2
-    {
-      if ($ifoString =~ /H1/i && $ifoString =~ /H2/i) {
-        $lagFile = '2det1site';
-        $likelihoodType = 'plusenergy,plusinc,nullenergy,nullinc';
-      } else {
-        $lagFile = '2det2site';
-        $likelihoodType = 'standard,plusenergy,plusinc,crossenergy,crossinc';
-      }
-   }
-
-    case 3
-    {
-      if ($ifoString =~ /H1/i && $ifoString =~ /H2/i) {
-        $lagFile = '3det2site';
-        $likelihoodType = 'standard,plusenergy,plusinc,crossenergy,crossinc,nullenergy,nullinc';
-      } else {
-        $lagFile = '3det3site';
-        $likelihoodType = 'standard,plusenergy,plusinc,crossenergy,crossinc,nullenergy,nullinc';
-      }
-    }
-
-    case 4
-    {
-      $lagFile = '4det3site';
-      $likelihoodType = 'standard,plusenergy,plusinc,crossenergy,crossinc,nullenergy,nullinc,H1H2nullenergy,H1H2nullinc';
-    }
-
-    else
-    {
-      return $ifoString;
-    }
-  }
-
-#=== This block is commented out because of changes to grb.py ===#
-#  $sedCommand = sprintf "sed -e '/^lagFile.*/s/%s/%s/' -e '/^likelihoodType.*/s/%s/%s/' -e '/^segmentListFile.*/s/jobdir/%s/' %s > %s",
-#                         $lagFileToken, $lagFile, $likelihoodToken, $likelihoodType, $jobDir,
-#                         $iniTemplateFile, $iniFile;
-#printf "$sedCommand\n";
-#
-#  system $sedCommand;
-
-  $cpCommand = sprintf "cp %s %s", $iniTemplateFile, $iniFile;
-  system $cpCommand;
-
   return $ifoString;
 
 }
 
 sub updateWebStatus {
 
-  use Switch;
+  #use Switch;
+  #use strict;
+  use warnings;
+  use feature qw(switch say);
 
   my($statusTableRef) = $_[0];
   my($htmlFile)       = $_[1];
@@ -325,7 +218,7 @@ sub updateWebStatus {
   my($searchStatusTable) = $statusTableRef;
 
   my($tableKey,$tempFile,$tableInsertTag,$insertData,$sedCommand,$lineNumber,$htmlString,$cpCommand);
-  my($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$jobId,$latency,$jobRunTime,$jobStatus,$rescueCtr,$jobStatusColor);
+  my($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$grbTrigDur,$jobId,$latency,$jobRunTime,$jobStatus,$rescueCtr,$jobStatusColor);
 
   $tempFile = sprintf "%s.temp", $htmlFile;
 
@@ -335,33 +228,58 @@ sub updateWebStatus {
 
   foreach $tableKey (keys %$searchStatusTable) {
     #printf "%s %s\n", $tableKey, $searchStatusTable->{$tableKey};
-    switch ($tableKey) {
-      case 'GRB_NAME'      { $grbName    = $searchStatusTable->{$tableKey}; }
-      case 'GRB_GPS'       { $grbGPS     = $searchStatusTable->{$tableKey}; }
-      case 'GRB_DATE'      { $grbDate    = $searchStatusTable->{$tableKey}; }
-      case 'GRB_TIME'      { $grbTime    = $searchStatusTable->{$tableKey}; }
-      case 'GRB_RA'        { $grbRA      = $searchStatusTable->{$tableKey}; }
-      case 'GRB_DEC'       { $grbDec     = $searchStatusTable->{$tableKey}; }
-      case 'GRB_ERR'       { $grbError   = $searchStatusTable->{$tableKey}; }
-      case 'IFO_STRING'    { $ifoString  = $searchStatusTable->{$tableKey}; }
-      case 'GRB_SAT'       { $grbSat     = $searchStatusTable->{$tableKey}; }
-      case 'JOB_CLUSTER'   { $jobId      = $searchStatusTable->{$tableKey}; }
-      case 'LATENCY'       { $latency    = $searchStatusTable->{$tableKey}; }
-      case 'RUN_TIME'      { $jobRunTime = $searchStatusTable->{$tableKey}; }
-      case 'JOB_STATUS'    { $jobStatus  = $searchStatusTable->{$tableKey}; }
-      case 'RESCUE_CTR'    { $rescueCtr  = $searchStatusTable->{$tableKey}; }
+    #switch ($tableKey) {
+    #  case 'GRB_NAME'      { $grbName    = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_GPS'       { $grbGPS     = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_DATE'      { $grbDate    = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_TIME'      { $grbTime    = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_RA'        { $grbRA      = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_DEC'       { $grbDec     = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_ERR'       { $grbError   = $searchStatusTable->{$tableKey}; }
+    #  case 'IFO_STRING'    { $ifoString  = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_SAT'       { $grbSat     = $searchStatusTable->{$tableKey}; }
+    #  case 'TRIG_DUR'      { $grbTrigDur = $searchStatusTable->{$tableKey}; }
+    #  case 'JOB_CLUSTER'   { $jobId      = $searchStatusTable->{$tableKey}; }
+    #  case 'LATENCY'       { $latency    = $searchStatusTable->{$tableKey}; }
+    #  case 'RUN_TIME'      { $jobRunTime = $searchStatusTable->{$tableKey}; }
+    #  case 'JOB_STATUS'    { $jobStatus  = $searchStatusTable->{$tableKey}; }
+    #  case 'RESCUE_CTR'    { $rescueCtr  = $searchStatusTable->{$tableKey}; }
+    given ($tableKey) {
+      when ('GRB_NAME')      { $grbName    = $searchStatusTable->{$tableKey}; }
+      when ('GRB_GPS')       { $grbGPS     = $searchStatusTable->{$tableKey}; }
+      when ('GRB_DATE')      { $grbDate    = $searchStatusTable->{$tableKey}; }
+      when ('GRB_TIME')      { $grbTime    = $searchStatusTable->{$tableKey}; }
+      when ('GRB_RA')        { $grbRA      = $searchStatusTable->{$tableKey}; }
+      when ('GRB_DEC')       { $grbDec     = $searchStatusTable->{$tableKey}; }
+      when ('GRB_ERR')       { $grbError   = $searchStatusTable->{$tableKey}; }
+      when ('IFO_STRING')    { $ifoString  = $searchStatusTable->{$tableKey}; }
+      when ('GRB_SAT')       { $grbSat     = $searchStatusTable->{$tableKey}; }
+      when ('TRIG_DUR')      { $grbTrigDur = $searchStatusTable->{$tableKey}; }
+      when ('JOB_CLUSTER')   { $jobId      = $searchStatusTable->{$tableKey}; }
+      when ('LATENCY')       { $latency    = $searchStatusTable->{$tableKey}; }
+      when ('RUN_TIME')      { $jobRunTime = $searchStatusTable->{$tableKey}; }
+      when ('JOB_STATUS')    { $jobStatus  = $searchStatusTable->{$tableKey}; }
+      when ('RESCUE_CTR')    { $rescueCtr  = $searchStatusTable->{$tableKey}; }
     }
   }
 
   #=== Specify job status color ===#
-  switch ($jobStatus) {
-    case 'PROCESSED' { $jobStatusColor = "jobstatus"; }
-    case 'RUNNING'   { $jobStatusColor = "jobrun"; }
-    case 'SUBMITTED' { $jobStatusColor = "jobsubmit"; }
-    case 'DATACUT'   { $jobStatusColor = "jobcut"; }
-    case 'IDLE'      { $jobStatusColor = "jobidle"; }
-    case 'HELD'      { $jobStatusColor = "jobheld"; }
-    else             { $jobStatusColor = "jobfail"; }
+  #switch ($jobStatus) {
+  #  case 'PROCESSED' { $jobStatusColor = "jobstatus"; }
+  #  case 'RUNNING'   { $jobStatusColor = "jobrun"; }
+  #  case 'SUBMITTED' { $jobStatusColor = "jobsubmit"; }
+  #  case 'DATACUT'   { $jobStatusColor = "jobcut"; }
+  #  case 'IDLE'      { $jobStatusColor = "jobidle"; }
+  #  case 'HELD'      { $jobStatusColor = "jobheld"; }
+  #  else             { $jobStatusColor = "jobfail"; }
+  given ($jobStatus) {
+    when ('PROCESSED') { $jobStatusColor = "jobstatus"; }
+    when ('RUNNING')   { $jobStatusColor = "jobrun"; }
+    when ('SUBMITTED') { $jobStatusColor = "jobsubmit"; }
+    when ('DATACUT')   { $jobStatusColor = "jobcut"; }
+    when ('IDLE')      { $jobStatusColor = "jobidle"; }
+    when ('HELD')      { $jobStatusColor = "jobheld"; }
+    default            { $jobStatusColor = "jobfail"; }
   }
 
   #=== Check if this GRB has an entry in the html file ===#
@@ -392,15 +310,10 @@ printf "$sedCommandpre\n";
     if ($resultsLink eq '' && $openboxLink eq '') {
       if ($rescueCtr == -1) {
         $htmlString = sprintf
-#           "  <td class=\"grbra\" rowspan=\"2\">%s<\\/td> <td class=\"grbdec\" rowspan=\"2\">%s<\\/td> <td class=\"grberr\" rowspan=\"2\">%s<\\/td> <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td>\\\n",
-#                      $grbRA, $grbDec, $grbError, 'X-pipeline', $ifoString;
         $htmlString = sprintf 
            "  <td class=\"jobid\">%s<\\/td> <td class=\"jobruntime\">%s<\\/td> <td class=\"%s\">%s<\\/td>",
                       $jobId, $jobRunTime, $jobStatusColor, $jobStatus;
       } else {
-#        $htmlString = sprintf
-#           "  <td class=\"grbra\" rowspan=\"2\">%s<\\/td> <td class=\"grbdec\" rowspan=\"2\">%s<\\/td> <td class=\"grberr\" rowspan=\"2\">%s<\\/td> <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td>\\\n",
-#                      $grbRA, $grbDec, $grbError, 'X-pipeline', $ifoString;
         $htmlString = sprintf 
            "  <td class=\"jobid\">%s<\\/td> <td class=\"latency\">%s<\\/td>  <td class=\"jobruntime\">%s<\\/td> <td class=\"%s\">%s<\\/td> <td class=\"rescuectr\">%s<\\/td>",
                       $jobId, $latency, $jobRunTime, $jobStatusColor, $jobStatus, $rescueCtr;
@@ -429,11 +342,11 @@ printf "$sedCommand\n";
 
     $insertData = sprintf "\n<tr>\\\n";
 
-    $insertData = sprintf "%s  <td class=\"grbname\" rowspan=\"2\"><a href=\"https://gracedb.ligo.org/events/%s\">%s</a></td> <td class=\"grbsat\" rowspan=\"2\">%s</td> <td class=\"grbdate\" rowspan=\"2\">%s, %s</td> <td class=\"grbgps\" rowspan=\"2\">%s</td>\\\n", 
-                           $insertData, $grbName, $grbName, $grbSat, $grbDate, $grbTime, $grbGPS;
+    $insertData = sprintf "%s  <td class=\"grbname\" rowspan=\"2\"><a href=\"https://gracedb.ligo.org/events/%s\">%s</a></td> <td class=\"grbsat\" rowspan=\"2\">%s</td> <td class=\"grbdate\" rowspan=\"2\">%s, %s</td> <td class=\"grbgps\" rowspan=\"2\">%s</td> <td class=\"grbdur\" rowspan=\"2\">%s</td>\\\n", 
+                           $insertData, $grbName, $grbName, $grbSat, $grbDate, $grbTime, $grbGPS, $grbTrigDur;
     $insertData = sprintf "%s  <td class=\"grbra\" rowspan=\"2\">%s</td> <td class=\"grbdec\" rowspan=\"2\">%s</td> <td class=\"grberr\" rowspan=\"2\">%s</td>\\\n", 
                            $insertData, $grbRA, $grbDec, $grbError;
-    $insertData = sprintf "%s  <td class=\"pipeline\">%s</td> <td class=\"network\">%s</td>\\\n",
+    $insertData = sprintf "%s <td class=\"pipeline\">%s</td> <td class=\"network\">%s</td>\\\n",
                            $insertData, 'X-pipeline', $ifoString;
     $insertData = sprintf "%s  <td class=\"jobid\">%s</td> <td class=\"latency\">%s</td> <td class=\"jobruntime\">%s</td> <td class=\"%s\">%s</td> <td class=\"rescuectr\">%s</td>\\\n", 
                            $insertData, $jobId, $latency, $jobRunTime, $jobStatusColor, $jobStatus, $rescueCtr;
@@ -446,7 +359,7 @@ printf "$sedCommand\n";
     $insertData = sprintf "%s<tr>\\\n", $insertData;
 
     $insertData = sprintf "%s  <td class=\"pipeline\">%s</td> <td class=\"network\">%s</td>\\\n",    
-                           $insertData, 'cohPTF', '--';
+                           $insertData, 'PyGRB+cohPTF', '--';
     $insertData = sprintf "%s  <td class=\"jobid\">%s</td> <td class=\"latency\">%s</td> <td class=\"jobruntime\">%s</td> <td class=\"jobstatus\">%s</td> <td class=\"rescuectr\">%s</td>\\\n",
                            $insertData, '--', '--', '--', '--', '--';
     $insertData = sprintf "%s  <td class=\"jobid\">%s</td> <td class=\"jobruntime\">%s</td> <td class=\"jobstatus\">%s</td>\\\n",
@@ -469,7 +382,10 @@ printf "$sedCommand\n";
 
 sub updateWebStatusPTF {
 
-  use Switch;
+  #use Switch;
+  #use strict;
+  use warnings;
+  use feature qw(switch say);
 
   my($statusTableRef) = $_[0];
   my($htmlFile)       = $_[1];
@@ -481,7 +397,7 @@ sub updateWebStatusPTF {
   my($searchStatusTable) = $statusTableRef;
 
   my($tableKey,$tempFile,$tableInsertTag,$insertData,$sedCommand,$lineNumber,$htmlString,$cpCommand);
-  my($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$jobId,$latency,$jobRunTime,$jobStatus,$rescueCtr,$jobStatusColor);
+  my($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$grbTrigDur,$jobId,$latency,$jobRunTime,$jobStatus,$rescueCtr,$jobStatusColor);
 
   $tempFile = sprintf "%s.temp", $htmlFile;
 
@@ -491,33 +407,58 @@ sub updateWebStatusPTF {
 
   foreach $tableKey (keys %$searchStatusTable) {
     #printf "%s %s\n", $tableKey, $searchStatusTable->{$tableKey};
-    switch ($tableKey) {
-      case 'GRB_NAME'      { $grbName    = $searchStatusTable->{$tableKey}; }
-      case 'GRB_GPS'       { $grbGPS     = $searchStatusTable->{$tableKey}; }
-      case 'GRB_DATE'      { $grbDate    = $searchStatusTable->{$tableKey}; }
-      case 'GRB_TIME'      { $grbTime    = $searchStatusTable->{$tableKey}; }
-      case 'GRB_RA'        { $grbRA      = $searchStatusTable->{$tableKey}; }
-      case 'GRB_DEC'       { $grbDec     = $searchStatusTable->{$tableKey}; }
-      case 'GRB_ERR'       { $grbError   = $searchStatusTable->{$tableKey}; }
-      case 'IFO_STRING'    { $ifoString  = $searchStatusTable->{$tableKey}; }
-      case 'GRB_SAT'       { $grbSat     = $searchStatusTable->{$tableKey}; }
-      case 'JOB_CLUSTER'   { $jobId      = $searchStatusTable->{$tableKey}; }
-      case 'LATENCY'       { $latency    = $searchStatusTable->{$tableKey}; }
-      case 'RUN_TIME'      { $jobRunTime = $searchStatusTable->{$tableKey}; }
-      case 'JOB_STATUS'    { $jobStatus  = $searchStatusTable->{$tableKey}; }
-      case 'RESCUE_CTR'    { $rescueCtr  = $searchStatusTable->{$tableKey}; }
+    #switch ($tableKey) {
+    #  case 'GRB_NAME'      { $grbName    = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_GPS'       { $grbGPS     = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_DATE'      { $grbDate    = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_TIME'      { $grbTime    = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_RA'        { $grbRA      = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_DEC'       { $grbDec     = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_ERR'       { $grbError   = $searchStatusTable->{$tableKey}; }
+    #  case 'IFO_STRING'    { $ifoString  = $searchStatusTable->{$tableKey}; }
+    #  case 'GRB_SAT'       { $grbSat     = $searchStatusTable->{$tableKey}; }
+    #  case 'TRIG_DUR'      { $grbTrigDur = $searchStatusTable->{$tableKey}; }
+    #  case 'JOB_CLUSTER'   { $jobId      = $searchStatusTable->{$tableKey}; }
+    #  case 'LATENCY'       { $latency    = $searchStatusTable->{$tableKey}; }
+    #  case 'RUN_TIME'      { $jobRunTime = $searchStatusTable->{$tableKey}; }
+    #  case 'JOB_STATUS'    { $jobStatus  = $searchStatusTable->{$tableKey}; }
+    #  case 'RESCUE_CTR'    { $rescueCtr  = $searchStatusTable->{$tableKey}; }
+    given ($tableKey) {
+      when ('GRB_NAME')      { $grbName    = $searchStatusTable->{$tableKey}; }
+      when ('GRB_GPS')       { $grbGPS     = $searchStatusTable->{$tableKey}; }
+      when ('GRB_DATE')      { $grbDate    = $searchStatusTable->{$tableKey}; }
+      when ('GRB_TIME')      { $grbTime    = $searchStatusTable->{$tableKey}; }
+      when ('GRB_RA')        { $grbRA      = $searchStatusTable->{$tableKey}; }
+      when ('GRB_DEC')       { $grbDec     = $searchStatusTable->{$tableKey}; }
+      when ('GRB_ERR')       { $grbError   = $searchStatusTable->{$tableKey}; }
+      when ('IFO_STRING')    { $ifoString  = $searchStatusTable->{$tableKey}; }
+      when ('GRB_SAT')       { $grbSat     = $searchStatusTable->{$tableKey}; }
+      when ('TRIG_DUR')      { $grbTrigDur = $searchStatusTable->{$tableKey}; }
+      when ('JOB_CLUSTER')   { $jobId      = $searchStatusTable->{$tableKey}; }
+      when ('LATENCY')       { $latency    = $searchStatusTable->{$tableKey}; }
+      when ('RUN_TIME')      { $jobRunTime = $searchStatusTable->{$tableKey}; }
+      when ('JOB_STATUS')    { $jobStatus  = $searchStatusTable->{$tableKey}; }
+      when ('RESCUE_CTR')    { $rescueCtr  = $searchStatusTable->{$tableKey}; }
     }
   }
 
   #=== Specify job status color ===#
-  switch ($jobStatus) {
-    case 'PROCESSED' { $jobStatusColor = "jobstatus"; }
-    case 'RUNNING'   { $jobStatusColor = "jobrun"; }
-    case 'SUBMITTED' { $jobStatusColor = "jobsubmit"; }
-    case 'DATACUT'   { $jobStatusColor = "jobcut"; }
-    case 'IDLE'      { $jobStatusColor = "jobidle"; }
-    case 'HELD'      { $jobStatusColor = "jobheld"; }
-    else             { $jobStatusColor = "jobfail"; }
+  #switch ($jobStatus) {
+  #  case 'PROCESSED' { $jobStatusColor = "jobstatus"; }
+  #  case 'RUNNING'   { $jobStatusColor = "jobrun"; }
+  #  case 'SUBMITTED' { $jobStatusColor = "jobsubmit"; }
+  #  case 'DATACUT'   { $jobStatusColor = "jobcut"; }
+  #  case 'IDLE'      { $jobStatusColor = "jobidle"; }
+  #  case 'HELD'      { $jobStatusColor = "jobheld"; }
+  #  else             { $jobStatusColor = "jobfail"; }
+  given ($jobStatus) {
+    when ('PROCESSED') { $jobStatusColor = "jobstatus"; }
+    when ('RUNNING')   { $jobStatusColor = "jobrun"; }
+    when ('SUBMITTED') { $jobStatusColor = "jobsubmit"; }
+    when ('DATACUT')   { $jobStatusColor = "jobcut"; }
+    when ('IDLE')      { $jobStatusColor = "jobidle"; }
+    when ('HELD')      { $jobStatusColor = "jobheld"; }
+    default            { $jobStatusColor = "jobfail"; }
   }
 
   #=== Check if this GRB has an entry in the html file ===#
@@ -533,7 +474,7 @@ sub updateWebStatusPTF {
     $lineNumberpre = $lineNumber + 8;
     $htmlStringpre = sprintf
        " <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td>",
-               'cohPTF', $ifoString;
+               'PyGRB+cohPTF', $ifoString;
     $sedCommandpre = sprintf "sed '%ds/.*/%s/' %s > %s",
              $lineNumberpre, $htmlStringpre, $htmlFile, $tempFile;
 printf "$sedCommandpre\n";
@@ -547,25 +488,13 @@ printf "$sedCommandpre\n";
     $lineNumber = $lineNumber + $lineOffset;
     if ($resultsLink eq '' && $openboxLink eq '') {
       if ($rescueCtr == -1) {
-#        $htmlString = sprintf
-#           " <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td>\\\n",
-#                      'cohPTF', $ifoString;
         $htmlString = sprintf 
            "  <td class=\"jobid\">%s<\\/td> <td class=\"jobruntime\">%s<\\/td> <td class=\"%s\">%s<\\/td>",
                       $jobId, $jobRunTime, $jobStatusColor, $jobStatus;
-##        $htmlString = sprintf
-##            "  <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td> <td class=\"jobid\">%s<\\/td> <td class=\"jobruntime\">%s<\\/td> <td class=\"%s\">%s<\\/td>",
-##                 'cohPTF', $ifoString, $jobId, $jobRunTime, $jobStatusColor, $jobStatus;
       } else {
-#        $htmlString = sprintf
-#            " <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td>\\\n",
-#                      'cohPTF', $ifoString;
         $htmlString = sprintf 
            "  <td class=\"jobid\">%s<\\/td> <td class=\"latency\">%s<\\/td> <td class=\"jobruntime\">%s<\\/td> <td class=\"%s\">%s<\\/td> <td class=\"rescuectr\">%s<\\/td>",
                      $jobId, $latency, $jobRunTime, $jobStatusColor, $jobStatus, $rescueCtr;
-##         $htmlString = sprintf
-##             "  <td class=\"pipeline\">%s<\\/td> <td class=\"network\">%s<\\/td> <td class=\"jobid\">%s<\\/td> <td class=\"jobruntime\">%s<\\/td> <td class=\"%s\">%s<\\/td> <td class=\"rescuectr\">%s<\\/td>",
-##                    'cohPTF', $ifoString, $jobId, $jobRunTime, $jobStatusColor, $jobStatus, $rescueCtr;
       }
     } else {
       if ($openboxLink eq '') {
@@ -591,8 +520,8 @@ printf "$sedCommand\n";
 
     $insertData = sprintf "\n<tr>\\\n";
 
-    $insertData = sprintf "%s  <td class=\"grbname\" rowspan=\"2\"><a href=\"https://gracedb.ligo.org/events/%s\">%s</a></td> <td class=\"grbsat\" rowspan=\"2\">%s</td> <td class=\"grbdate\" rowspan=\"2\">%s, %s</td> <td class=\"grbgps\" rowspan=\"2\">%s</td>\\\n", 
-                           $insertData, $grbName, $grbName, $grbSat, $grbDate, $grbTime, $grbGPS;
+    $insertData = sprintf "%s  <td class=\"grbname\" rowspan=\"2\"><a href=\"https://gracedb.ligo.org/events/%s\">%s</a></td> <td class=\"grbsat\" rowspan=\"2\">%s</td> <td class=\"grbdate\" rowspan=\"2\">%s, %s</td> <td class=\"grbgps\" rowspan=\"2\">%s</td> <td class=\"grbdur\" rowspan=\"2\">%s</td>\\\n", 
+                           $insertData, $grbName, $grbName, $grbSat, $grbDate, $grbTime, $grbGPS, $grbTrigDur;
     $insertData = sprintf "%s  <td class=\"grbra\" rowspan=\"2\">%s</td> <td class=\"grbdec\" rowspan=\"2\">%s</td> <td class=\"grberr\" rowspan=\"2\">%s</td>\\\n", 
                            $insertData, $grbRA, $grbDec, $grbError;
     $insertData = sprintf "%s  <td class=\"pipeline\">%s</td> <td class=\"network\">%s</td>\\\n",           
@@ -608,7 +537,7 @@ printf "$sedCommand\n";
     $insertData = sprintf "%s<tr>\\\n", $insertData;
 
     $insertData = sprintf "%s  <td class=\"pipeline\">%s</td> <td class=\"network\">%s</td>\\\n",    
-                           $insertData, 'cohPTF', $ifoString;
+                           $insertData, 'PyGRB+cohPTF', $ifoString;
     $insertData = sprintf "%s  <td class=\"jobid\">%s</td> <td class=\"latency\">%s</td> <td class=\"jobruntime\">%s</td> <td class=\"%s\">%s</td> <td class=\"rescuectr\">%s</td>\\\n",
                            $insertData, $jobId, $latency, $jobRunTime, $jobStatusColor, $jobStatus, $rescueCtr;
     $insertData = sprintf "%s  <td class=\"jobid\">%s</td> <td class=\"jobruntime\">%s</td> <td class=\"jobstatus\">%s</td>\\\n",
@@ -631,7 +560,10 @@ printf "$sedCommand\n";
 
 sub grbNotify {
 
-  use Switch;
+  #use Switch;
+  #use strict;
+  use warnings;
+  use feature qw(switch say);
 
   my($eheaderRef)  = $_[0];
   my($emailFile)   = $_[1];
@@ -661,11 +593,16 @@ sub grbNotify {
   $subjectString = '';
   $messageString = '';
   foreach $tableKey (keys %$eheaderRef) {
-    switch ($tableKey) {
-      case 'FROM'    { $fromString    = $eheaderRef->{$tableKey}; }
-      case 'REPLYTO' { $replyToString = $eheaderRef->{$tableKey}; }
-      case 'SUBJECT' { $subjectString = $eheaderRef->{$tableKey}; }
-      case 'MESSAGE' { $messageString = $eheaderRef->{$tableKey}; }
+    #switch ($tableKey) {
+    #  case 'FROM'    { $fromString    = $eheaderRef->{$tableKey}; }
+    #  case 'REPLYTO' { $replyToString = $eheaderRef->{$tableKey}; }
+    #  case 'SUBJECT' { $subjectString = $eheaderRef->{$tableKey}; }
+    #  case 'MESSAGE' { $messageString = $eheaderRef->{$tableKey}; }
+    given ($tableKey) {
+      when ('FROM')    { $fromString    = $eheaderRef->{$tableKey}; }
+      when ('REPLYTO') { $replyToString = $eheaderRef->{$tableKey}; }
+      when ('SUBJECT') { $subjectString = $eheaderRef->{$tableKey}; }
+      when ('MESSAGE') { $messageString = $eheaderRef->{$tableKey}; }
     }
   }
 
@@ -735,39 +672,6 @@ sub createGrbNotes {
   my($decTag)       = 'GRBDEC';
   my($errTag)       = 'POSERR';
 
-#  my($satelliteCode) = $satellite;
-#  if ($satellite eq 'SwiftSub') {
-#    $satelliteCode = 'Swift';
-#  }
-#  if ($satellite eq 'SuperAGILE') {
-#    $satilliteCode = 'AGILE';
-#  }
-
-#  my($posErrorCode) = '(undefined)';
-#  if ($grbErrorType eq 'stat') {
-#    $posErrorCode = '(statistical only)';
-#  } else {
-#    if ($grbErrorType eq 'ssys') {
-#      $posErrorCode = '(statistical plus systematic)';
-#    }
-#  }
-
-#  if ($gcnType eq 'N') {
-#    $gcnTypeString = 'Notice';
-#    $mainLink      = sprintf "%s\\/%d.%s", $GCNBASE, $gcnNum, lc($satelliteCode);
-#  } else {
-#    if ($gcnType eq 'C') {
-#      $gcnTypeString = 'Circular';
-#      $mainLink      = sprintf "%s\\/gcn3\\/%d.gcn3", $GCNURL, $gcnNum;
-#    } else {
-#      printf "Invalid GCN type $gcnType for GRB $grbName.\n";
-#      return;
-#    }
-#  }
-
-  #=== Calculate GPS time ===#
-#  my($tconvertCommand) = sprintf "tconvert %s %s UT", substr($grbName,0,6), $grbUT;
-#  my($grbGPS) = `$tconvertCommand`;
   chomp($grbGPS);
 
   my($notesHtml) = sprintf "%s/grb%s_notes.html", $PUBLICDIR, $grbName;

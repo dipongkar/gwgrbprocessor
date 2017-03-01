@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+import time, sys, os, commands
+import numpy as np
+from ligo.gracedb.rest import GraceDb, HTTPError
+from glue import lal
+from pylal import frutils
+
+def get_event_gps(event_id):
+    client = GraceDb()
+    try:
+      event = client.events(event_id)
+      eventlist = list(event)
+      gpstime = [x['gpstime'] for x in eventlist]
+      grb_desig = [x['extra_attributes']['GRB']['designation'] for x in eventlist]
+      grb_name = [str(i).strip() for i in grb_desig]
+      grb_name = ''.join(grb_name)
+      if grb_name == 'None':
+         grb_name = '{GRB_DESIGNATION}'
+      else:
+         grb_name = grb_name
+      return gpstime,grb_name
+    except Exception, e:
+      print(e)
+
+
+def segment_finder(obs,starttime,endtime):
+    flag = 'DMT-ANALYSIS_READY:1'
+    given_diff = endtime - starttime
+    try:   
+       cmd_segfind = 'ligolw_segment_query_dqsegdb --segment https://segments.ligo.org --include-segments ' + obs + '1:' + flag + ' --gps-start-time ' + str(starttime) + ' --gps-end-time ' + str(endtime) + ' --query-segments > /home/grb.exttrig/Online/O2/processor/dq/dqquery.xml'
+       commands.getoutput(cmd_segfind)
+       dqf = os.stat('/home/grb.exttrig/Online/O2/processor/dq/dqquery.xml')
+       dqf_size = dqf.st_size
+       if dqf_size > 1:
+          cmd_lwtprint = 'lwtprint /home/grb.exttrig/Online/O2/processor/dq/dqquery.xml -t segment -c \'end_time\' \'start_time\' -d \"  \" >  /home/grb.exttrig/Online/O2/processor/dq/seglist.txt'     
+          commands.getoutput(cmd_lwtprint)
+       else:
+          os.remove('/home/grb.exttrig/Online/O2/processor/dq/seglist.txt') 
+       f = os.stat('/home/grb.exttrig/Online/O2/processor/dq/seglist.txt')
+       file_size = f.st_size
+       if file_size > 1:
+          os.system("awk '{ total += $1-$2} END {print total}' /home/grb.exttrig/Online/O2/processor/dq/seglist.txt > /home/grb.exttrig/Online/O2/processor/dq/total_duration.txt")
+          dur_file = open('/home/grb.exttrig/Online/O2/processor/dq/total_duration.txt')
+          total_duration = float(dur_file.read().rstrip())
+       else:
+          total_duration = 0.0
+       diff = float(given_diff) - total_duration 
+       return diff
+    except Exception, e:
+       print(e)
+
+
+def range_datafind(obs,starttime,endtime):
+    frame_type = 'SenseMonitor_hoft_' + obs + '1_M'
+    try:
+       file_prefix = '/home/grb.exttrig/Online/O2/processor/dq/cache/range_' + obs + '_' + str(starttime) + '-' + str(endtime) + '_'
+       cache_file = file_prefix + 'frame_cache.txt'
+       cmd_datafind = 'gw_data_find -o ' + obs + ' -s ' + str(starttime) + ' -e ' + str(endtime) + ' -t ' + frame_type + ' -u file --lal-cache > ' + cache_file
+       commands.getoutput(cmd_datafind)
+    except Exception, e:
+       print(e)
+
+
+def get_bns_range(obs,starttime,endtime):
+    try:
+       file_prefix = '/home/grb.exttrig/Online/O2/processor/dq/cache/range_' + obs + '_' + str(starttime) + '-' + str(endtime) + '_'
+       cache_file = file_prefix + 'frame_cache.txt'
+       cache = lal.Cache.fromfile(open(cache_file))
+       get_data = frutils.FrameCache(cache, scratchdir=None, verbose=False)
+       channel = obs + '1:DMT-SNSH_EFFECTIVE_RANGE_MPC.mean'
+       bns_range = get_data.fetch(channel,starttime,endtime)
+       bns_range = int(round(np.mean(bns_range[0])))
+    except Exception, e:
+       print(e)
+       bns_range = 'NotReady'
+    return bns_range
+
+def draft_circlular(event_id,grb_name,lho_status,llo_status,online_status):
+    file_draft = open('/home/grb.exttrig/public_html/grb/online/O2/search/draft_circular/' + event_id + '-detector-status.txt', 'w') 
+    file_draft.write(str('SUBJECT: LIGO/Virgo analysis: ') + grb_name + str(' initial report') + '\n\n' + str('At the time of ') + grb_name + str(', the status of the LIGO observatories are:') + '\n\n' + str('LHO: ') + lho_status + '\n' + str('LLO: ') + llo_status + '\n\n' + online_status + '\n\n' + str('More information can be found at this URL:') + '\n' + str('https://gracedb.ligo.org/events/') + event_id + '\n\n' + str('{YOUR_NAME} <{YOUR_EMAIL}> for the LIGO Scientific and Virgo Collaborations'))    
+    file_draft.close()
+
+
+def annotate_gracedb(event_id):
+    gracedb = GraceDb()
+    graceid = event_id
+    message = 'Draft CIRCULAR for detector status can be found <a href="https://ldas-jobs.ligo.caltech.edu/~grb.exttrig/grb/online/O2/search/draft_circular/' + event_id + '-detector-status.txt">here</a>.'
+    try:
+       r = gracedb.writeLog(graceid,message,tagname="analyst_comments")
+       print "Response status: %d" % r.status
+    except HTTPError, e:
+       print "Something's wrong: %s" % str(e)
+
+while True:
+  grbnow = []
+  grbfile = open('notes_dates_O2.txt','r')
+  for lines in grbfile:
+      grblines = lines.strip()
+      grbnow.append(grblines)
+  #print grbnow
+  grbfile.close()
+
+  grbdone = []
+  detstagrbfiler = open('known_detector_status_O2.txt','r')
+  for lines in detstagrbfiler:
+      grblines = lines.strip()
+      grbdone.append(grblines)
+  #print grbdone
+  detstagrbfiler.close()
+
+  unmatched = set(grbnow).symmetric_difference(set(grbdone))
+  unmatched = list(unmatched)
+  print unmatched
+
+  if not unmatched:
+     print "1st loop sleep : %s" % time.ctime()
+     time.sleep(300)
+  else:
+     for item in unmatched:
+       event_id = item
+       #print event_id
+       try:
+          gpstime,grb_name = get_event_gps(event_id)
+       except Exception, e:
+          print(e)
+          continue
+       print grb_name
+       gpstime = int(round(gpstime[0]))
+       print gpstime
+       cmd_tconvert = 'lalapps_tconvert now'
+       time_now = commands.getoutput(cmd_tconvert)
+       time_now = int(time_now)
+       if gpstime+5*60 < time_now:
+          starttime = gpstime-1
+          endtime = gpstime+1
+          try:
+            H1_science = segment_finder('H',starttime,endtime)
+            L1_science = segment_finder('L',starttime,endtime)
+            #print H1_science
+            #print L1_science
+            range_datafind('H',starttime,endtime)
+            range_datafind('L',starttime,endtime)
+            H1_range = get_bns_range('H',starttime,endtime)
+            L1_range = get_bns_range('L',starttime,endtime) 
+            #print H1_range
+            #print L1_range
+          except Exception, e:
+            print(e)
+            continue
+          if H1_range == 'NotReady':
+             lho_status = 'NotReady'
+          elif H1_science == 0.0 and H1_range > 0.0:
+             lho_status = str('in observation mode with average BNS range ') +  str(H1_range) + str(' Mpc')
+          else:
+             lho_status = 'down'
+          if L1_range == 'NotReady':
+             llo_status = 'NotReady'
+          elif L1_science == 0.0 and L1_range > 0.0:
+             llo_status = str('in observation mode with average BNS range ') +  str(L1_range) + str(' Mpc')
+          else:
+             llo_status = 'down'
+          if lho_status == 'NotReady' or llo_status == 'NotReady':
+             online_status = 'NotReady'
+          elif lho_status == 'down' and llo_status == 'down':
+             online_status = 'No further report expected from online analysis.'
+          else:
+             online_status = 'Gravitational-wave data ongoing, updates will be provided by new Circular.'
+          if online_status != 'NotReady':
+             try:
+                draft_circlular(event_id,grb_name,lho_status,llo_status,online_status) 
+                annotate_gracedb(event_id)
+                detstagrbfilea = open('known_detector_status_O2.txt','a')
+                detstagrbfilea.write(event_id + '\n')
+                detstagrbfilea.close()
+             except Exception, e:
+                print(e)
+                continue
+       else:
+          print "2nd loop sleep : %s" % time.ctime()
+          time.sleep(300)
+
+  print "Sleep : %s" % time.ctime()
+  time.sleep(300)

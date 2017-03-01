@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
-require 'exttrig_utils.pl';
-require 'exttrig_params.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_utils.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_params.pl';
 
 #=== Get user name ===#
 $USERNAME = `whoami`;
@@ -15,7 +15,7 @@ $JOBSDIR          = sprintf "%s/runs/CBC", $SCRIPTSDIR;
 $LOGPATH          = sprintf "/usr1/%s/log", $USERNAME;
 $PUBLICDIR        = sprintf "%s/public_html/grb/online/%s/search/notes", $HOMEDIR, $LIGORUN;
 $PARAMSDIR        = sprintf "%s/params/CBC", $SCRIPTSDIR;
-
+$HTML_DIR         = sprintf "%s/public_html/grb/online/%s", $HOMEDIR, $LIGORUN;
 #=== Specify input and log files ===#
 $currentGrbFile   = sprintf "%s/grbingracedb_%s.txt", $GRBDIR, $LIGORUN;             #[[[???]]]          
 $statusFile       = sprintf "%s/monitor_status_cohptf_%s.log", $SCRIPTSDIR, $LIGORUN;
@@ -23,8 +23,12 @@ $tempFile         = sprintf "%s/monitor_status_cohptf_%s_temp.log", $SCRIPTSDIR,
 $notesListFile    = sprintf "%s/notes_dates_cohptf_%s.txt", $SCRIPTSDIR, $LIGORUN;        #[[[???]]] 
 
 $MAINURL          = sprintf "%s/~%s/web/%s/OnlineGRB_page_%s.html", $PUBSERVER, $USERNAME, $LIGORUN, $LIGORUN;
-$CONFIG_FILE      = sprintf "ADE_GRB_trigger_hipe.ini";
-$INJ_FILE         = sprintf "ADE_injections_vlow.ini";
+#$ANALYSIS_FILE    = sprintf "analysis_o1.ini";
+#$VETO_FILE        = sprintf "data_o1.ini";
+#$DATA_FILE        = sprintf "online_o1.ini";
+#$INJ_FILE         = sprintf "injections_o1.ini";
+#$PP_FILE          = sprintf "postprocessing_o1.ini";
+#$TEMPLATEBANKFILE = sprintf "H1-TMPLTBANK_GRB100928A_DATAFIND-969673046-4992.xml";
 
 #=== Some shortcut ===#
 $gridcmd2 = " --gps-start-time ";
@@ -35,16 +39,18 @@ $gridcmd4 = " --url-type file";
 $processedGrbFile = sprintf "%s/processedgrbs_strain_cohptf_%s.txt", $SCRIPTSDIR, $LIGORUN;
 printf "$processedGrbFile\n";
 
-$SEARCHDURATION = 2*$SEGDURATION_CBC;
-
-#=== New search parameters ===#
-#$SEARCHBEFORE   = 5;
-#$SEARCHAFTER    = 1;
-#$SEARCHDURATION = $SEARCHBEFORE + $SEARCHAFTER;
+$SEARCHDURATION = $SEGDURATION_CBC;
 
 #=== Minumum number of frames required ===#
-$NFRAMESMIN    = int(2.0*$SEGDURATION_CBC/$FRAMELEN);
-#$NFRAMESMINV = int(2.0*$SEGDURATION_CBC/$FRAMELENV);
+$NFRAMESMIN    = int($SEGDURATION_CBC/$FRAMELEN);
+#$NFRAMESMINV = int($SEGDURATION_CBC/$FRAMELENV);
+
+##NEW
+$SEGDURATION_CBC_NEW = 272;
+$SEGDURATIONLEFT_NEW = 77;
+$SEGDURATIONRIGHT_NEW = 73;
+$NFRAMESMIN_NEW    = int($SEGDURATION_CBC_NEW/$FRAMELEN);
+##NEW
 
 #=== Set start time ===#
 #$currentTime  = time;
@@ -55,6 +61,7 @@ $oldStampGrb = 0;
 
 #=== Unset condor flag ===#
 $condorFlag = 0;
+use POSIX;
 
 while (1) {
 
@@ -71,7 +78,7 @@ while (1) {
     $year = 1900 + $year - 2000;
 
     #=== Get current time in GPS ===#
-    $nowGPSFloat = `tconvert now`;
+    $nowGPSFloat = `lalapps_tconvert now`;
     chomp($nowGPSFloat);
     $nowGPS = int($nowGPSFloat);
 #    $nowGPS = 1058716992; 
@@ -91,9 +98,6 @@ while (1) {
     } else {
       printf LOGFILE "Starting new trigger check on %s\n", $timeString;
     }
-
-    #=== scp GRB file from kepler ===#
-    #system $scpCommand;
 
     #=== Read input processed GRBs file ===#
     if (-e $processedGrbFile) {
@@ -127,9 +131,6 @@ while (1) {
       #=== Get current time stamp ===#
       $currentStampGrb = (stat($currentGrbFile))[9];
 
-      #=== If GRB file has been updated since last scp ===#
-      #if ($currentStampGrb > $oldStampGrb) {
-
         #=== Update timestamp variable ===#
         $oldStampGrb = $currentStampGrb;
 
@@ -155,6 +156,7 @@ while (1) {
         @grbRAV         = ();
         @grbDecV        = ();
         @grbErrorV      = ();
+        @grbTrigDurV    = ();
         @grbSatV        = ();
         @grbInsV        = ();
         foreach $inputLine (@inputLinesAll) {
@@ -164,7 +166,7 @@ while (1) {
             next;
           }
 
-          if ($inputLine =~ /^(\S+)\s+External\s+GRB\s+(\S+)\s+(\S+)\s+(\S+)\s+UTC\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+Satellite,\s+(\S+)\s+Instrument\s*$/) {
+          if ($inputLine =~ /^(\S+)\s+External\s+GRB\s+(\S+)\s+(\S+)\s+(\S+)\s+UTC\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+Satellite,\s+(\S+)\s+Instrument\s*$/) {
             $grbNameV[$gctr]    = $1;
             $grbGPSV[$gctr]     = $2;
             $grbDateV[$gctr]    = $3;
@@ -173,8 +175,9 @@ while (1) {
             $grbRAV[$gctr]      = $6;
             $grbDecV[$gctr]     = $7;
             $grbErrorV[$gctr]   = $8;
-            $grbSatV[$gctr]     = $9;
-            $grbInsV[$gctr]     = $10;
+            $grbTrigDurV[$gctr] = $9;
+            $grbSatV[$gctr]     = $10;
+            $grbInsV[$gctr]     = $11;
           } else {
             printf LOGFILE "Error reading GRB file:  $inputLine\n";
             next;
@@ -226,7 +229,7 @@ while (1) {
  
           $grbName    = $grbNameV[$gctr];
           $grbGPS     = $grbGPSV[$gctr];
-          $grbGPS     = int($grbGPS);
+          $grbGPS     = ceil($grbGPS);
           $grbDate    = $grbDateV[$gctr];
           $grbTime    = $grbTimeV[$gctr];
           $grbHttp    = $grbHttpV[$gctr];
@@ -234,9 +237,10 @@ while (1) {
           $grbDec     = $grbDecV[$gctr];
           $grbError   = $grbErrorV[$gctr];
           $grbSat     = $grbSatV[$gctr];
+          $grbTrigDur = $grbTrigDurV[$gctr];
 
         if ($grbSat eq 'Fermi' && $gctr < $gcount - 1) {
-          if (($grbSatV[$gctr-1] eq 'Swift' && $grbGPS-$grbGPSV[$gctr-1] < 300) or ($grbSatV[$gctr+1] eq 'Swift' && $grbGPSV[$gctr+1]-$grbGPS < 300)) {
+          if (($grbSatV[$gctr-1] eq 'Swift' && abs($grbGPS-$grbGPSV[$gctr-1]) < 300) or ($grbSatV[$gctr+1] eq 'Swift' && abs($grbGPSV[$gctr+1]-$grbGPS) < 300)) {
              next;
           }
         }
@@ -256,36 +260,32 @@ while (1) {
           $jobCluster = 0;
           $jobRunTime = '0+00:00:00';
 
-          $gpsTimeNow    = `tconvert now`;
+          $gpsTimeNow    = `lalapps_tconvert now`;
           $latency = ($gpsTimeNow - $grbGPS)/60;
           $latency = sprintf("%.2f",$latency);
 
-          #=== Open output frame list file ===#
-          #$frameFile = "$FRAMEDIR"."frames_strain_grb$grbDate.ffl";
-
-          #open FRAMEFILE, ">$frameFile"
-          #  or die "Error opening file $frameFile: $!";
-
-          #select FRAMEFILE;
-          #$| = 1;
-
           select STDOUT;
 
-          $gpsStart = $grbGPS - $SEGDURATION_CBC;
-          #$gpsEnd   = $gpsStart + $SEARCHDURATION + 2*$SEGDURATION_CBC;
-          $gpsEnd   = $gpsStart + 2*$SEGDURATION_CBC;
+          $gpsStart = $grbGPS - $SEGDURATIONLEFT_CBC;
+          $gpsEnd   = $gpsStart + $SEGDURATION_CBC;
 
-          #=== Make sure proxy is current ===#
-          #system 'grid-proxy-init -out ~/.grid_user_proxy -pwstdin < ~/.grid';
-          #system 'grid-proxy-init -rfc -debug -cert ~/.globus/ldas-grid.ligo.caltech.edu/xpipelinecert.pem -key ~/.globus/ldas-grid.ligo.caltech.edu/xpipelinekey.pem -out ~/.grid_user_proxy';
-          #system 'grid-proxy-init -rfc -debug -cert /etc/grid-security/xpipelinecert.pem -key /etc/grid-security/xpipelinekey.pem -out ~/.grid_user_proxy';
+##NEW
+          $gpsStart_new_1 = $grbGPS - $SEGDURATIONLEFT_NEW;
+          $gpsEnd_new_1   = $gpsStart_new_1 + $SEGDURATION_CBC_NEW;
+
+          $gpsEnd_new_2 = $grbGPS + $SEGDURATIONRIGHT_NEW;
+          $gpsStart_new_2  = $gpsEnd_new_2 - $SEGDURATION_CBC_NEW;
+ 
+          $optionFlagH1 = -1;
+          $optionFlagL1 = -1;
+##NEW
 
           #=== Find LHO frames ===#
           while (1) {
             $OBSERVATORY = "H";
-            $gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type H1_".$FRAMETYPE;
+            $gridcmd1 = "gw_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type H1_".$FRAMETYPE;
             $command = $gridcmd1.$gridcmd2.$gpsStart.$gridcmd3.$gpsEnd.$gridcmd4;
-            printf LOGFILE "GRB %s:  Running ligo_data_find:  %s\n", $grbName, $command;
+            printf LOGFILE "GRB %s:  Running gw_data_find:  %s\n", $grbName, $command;
     
              @frames = ();
              @frames = `$command`;
@@ -303,21 +303,56 @@ while (1) {
               if ($#frames + 1 < $NFRAMESMIN) {
      
                 #=== Get current GPS seconds ===#
-                $currentGps = `tconvert now`;
+                $currentGps = `lalapps_tconvert now`;
                 $gpsDiff = $currentGps - $grbGPS;
 
-                $gpsTimeNow    = `tconvert now`;
+                $gpsTimeNow    = `lalapps_tconvert now`;
                 $latency = ($gpsTimeNow - $grbGPS)/60;
                 $latency = sprintf("%.2f",$latency);
 
                 #=== If less than two hours have elapsed since GRB trigger time ===#
                 if ($gpsDiff < $DATADELAY_CBC) {
-                  #printf LOGFILE "GRB %s:  Waiting for more LHO data; sleeping for %.3f seconds.\n", $grbName, $DATADELAY_CBC - $gpsDiff;
                   printf LOGFILE "GRB %s:  Waiting for more LHO data; sleeping for %.3f seconds.\n", $grbName, $TIMEDELAY;
                   #sleep $DATADELAY_CBC - $gpsDiff;
                   sleep $TIMEDELAY;
                 } else {
                   printf LOGFILE "GRB %s:  Not enough frame files found for LHO.\n", $grbName;
+##NEW
+
+                  printf LOGFILE "GRB %s:  Checking for Least required files for LHO - option 1.\n", $grbName;
+                  $OBSERVATORY = "H";
+                  $gridcmd1 = "gw_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type H1_".$FRAMETYPE;
+                  $command1 = $gridcmd1.$gridcmd2.$gpsStart_new_1.$gridcmd3.$gpsEnd_new_1.$gridcmd4;
+                  printf LOGFILE "GRB %s: Least Running gw_data_find:  %s\n", $grbName, $command1;
+                   @frames1 = ();
+                   @frames1 = `$command1`;
+                    chomp(@frames1);
+                    printf LOGFILE "GRB %s:  %d Least frame files found for LHO - option 1.\n", $grbName, $#frames1 + 1;
+                    if ($#frames1 + 1 >= $NFRAMESMIN_NEW) {
+                    $optionFlagH1 = 1;
+                    }
+
+                  printf LOGFILE "GRB %s:  Checking for Least required files for LHO - option 2.\n", $grbName;
+                  $OBSERVATORY = "H";
+                  $gridcmd1 = "gw_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type H1_".$FRAMETYPE;
+                  $command2 = $gridcmd1.$gridcmd2.$gpsStart_new_2.$gridcmd3.$gpsEnd_new_2.$gridcmd4;
+                  printf LOGFILE "GRB %s: Least Running gw_data_find:  %s\n", $grbName, $command2;
+                   @frames2 = ();
+                   @frames2 = `$command2`;
+                    chomp(@frames2);
+                    printf LOGFILE "GRB %s:  %d Least frame files found for LHO - option 2.\n", $grbName, $#frames2 + 1; 
+                    if ($#frames2 + 1 >= $NFRAMESMIN_NEW) {
+                    $optionFlagH1 = 2;
+                    } 
+
+                    @frames = ();
+                    if ($#frames2 > $#frames1){
+                    @frames = @frames2;
+                    } else {
+                    @frames = @frames1;
+                    }
+##NEW
+
                   last;
                 }
               } else {
@@ -330,9 +365,9 @@ while (1) {
 
           while (1) {
             $OBSERVATORY = "L";
-            $gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type L1_".$FRAMETYPE;
+            $gridcmd1 = "gw_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type L1_".$FRAMETYPE;
             $command = $gridcmd1.$gridcmd2.$gpsStart.$gridcmd3.$gpsEnd.$gridcmd4;
-            printf LOGFILE "GRB %s:  Running ligo_data_find:  %s\n", $grbName, $command;
+            printf LOGFILE "GRB %s:  Running gw_data_find:  %s\n", $grbName, $command;
 
             @frames = ();
             @frames = `$command`;
@@ -350,21 +385,56 @@ while (1) {
               if ($#frames + 1 < $NFRAMESMIN) {
      
                 #=== Get current GPS seconds ===#
-                $currentGps = `tconvert now`;
+                $currentGps = `lalapps_tconvert now`;
                 $gpsDiff = $currentGps - $grbGPS;
 
-                $gpsTimeNow    = `tconvert now`;
+                $gpsTimeNow    = `lalapps_tconvert now`;
                 $latency = ($gpsTimeNow - $grbGPS)/60;
                 $latency = sprintf("%.2f",$latency);
 
                 #=== If less than two hours have elapsed since GRB trigger time ===#
                 if ($gpsDiff < $DATADELAY_CBC) {
-                  #printf LOGFILE "GRB %s:  Waiting for more LLO data; sleeping for %.3f seconds.\n", $grbName, $DATADELAY_CBC - $gpsDiff;
                   printf LOGFILE "GRB %s:  Waiting for more LLO data; sleeping for %.3f seconds.\n", $grbName, $TIMEDELAY;
                   #sleep $DATADELAY_CBC - $gpsDiff;
                   sleep $TIMEDELAY;
                 } else {
                   printf LOGFILE "GRB %s:  Not enough frame files found for LLO.\n", $grbName;
+##NEW
+
+                  printf LOGFILE "GRB %s:  Checking for Least required files for LLO - option 1.\n", $grbName;
+                  $OBSERVATORY = "L";
+                  $gridcmd1 = "gw_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type L1_".$FRAMETYPE;
+                  $command1 = $gridcmd1.$gridcmd2.$gpsStart_new_1.$gridcmd3.$gpsEnd_new_1.$gridcmd4;
+                  printf LOGFILE "GRB %s: Least Running gw_data_find:  %s\n", $grbName, $command1;
+                   @frames1 = ();
+                   @frames1 = `$command1`;
+                    chomp(@frames1);
+                    printf LOGFILE "GRB %s:  %d Least frame files found for LLO - option 1.\n", $grbName, $#frames1 + 1;
+                    if ($#frames1 + 1 >= $NFRAMESMIN_NEW) {
+                    $optionFlagL1 = 1;
+                    }
+
+                  printf LOGFILE "GRB %s:  Checking for Least required files for LLO - option 2.\n", $grbName;
+                  $OBSERVATORY = "L";
+                  $gridcmd1 = "gw_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type L1_".$FRAMETYPE;
+                  $command2 = $gridcmd1.$gridcmd2.$gpsStart_new_2.$gridcmd3.$gpsEnd_new_2.$gridcmd4;
+                  printf LOGFILE "GRB %s: Least Running gw_data_find:  %s\n", $grbName, $command2;
+                   @frames2 = ();
+                   @frames2 = `$command2`;
+                    chomp(@frames2);
+                    printf LOGFILE "GRB %s:  %d Least frame files found for LLO - option 2.\n", $grbName, $#frames2 + 1;
+                    if ($#frames2 + 1 >= $NFRAMESMIN_NEW) {
+                    $optionFlagL1 = 2;
+                    }
+
+                    @frames = ();
+                    if ($#frames2 > $#frames1){
+                    @frames = @frames2;
+                    } else {
+                    @frames = @frames1;
+                    }
+
+##NEW
                   last;
                 }
               } else {
@@ -374,96 +444,111 @@ while (1) {
           }
           $nFramesL1 = $#frames + 1;
 
-
-#          while (1) {
-#            $OBSERVATORY = "V";
-            #$gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type V1_".$FRAMETYPEV;
-#            $gridcmd1 = "ligo_data_find --server=".$DATASERVER." --observatory ".$OBSERVATORY." --type ".$FRAMETYPEV;
-#            $command = $gridcmd1.$gridcmd2.$gpsStart.$gridcmd3.$gpsEnd.$gridcmd4;
-#            printf LOGFILE "GRB %s:  Running ligo_data_find:  %s\n", $grbName, $command;
-
-#            @frames = ();
-#            @frames = `$command`;
-#            chomp(@frames);
-
-            #=== If no frame files found ===#
-#            if ($#frames + 1 == 0) {
-#              printf LOGFILE "GRB %s:  No frame files found for VRG!\n", $grbName;
-#              last;
-#            } else {
-
-#              printf LOGFILE "GRB %s:  %d frame files found for VRG.\n", $grbName, $#frames + 1;
-
-              #=== If not enough frame files found ===#
-#              if ($#frames + 1 < $NFRAMESMINV) {
-     
-                #=== Get current GPS seconds ===#
-#                $currentGps = `tconvert now`;
-#                $gpsDiff = $currentGps - $grbGPS;
-
-                #=== If less than two hours have elapsed since GRB trigger time ===#
-#                if ($gpsDiff < $DATADELAY_CBC) {
-#                  printf LOGFILE "GRB %s:  Waiting for more VRG data; sleeping for %.3f seconds.\n", $grbName, $DATADELAY_CBC - $gpsDiff;
-#                  sleep $DATADELAY_CBC - $gpsDiff;
-#                } else {
-#                  printf LOGFILE "GRB %s:  Not enough frame files found for VRG.\n", $grbName;
-#                  last;
-#                }
-#              } else {
-#                last;
-#              }
-#            }
-#          }
-#          $nFramesV1 = $#frames + 1;
-
-
-
-#          if (($nFramesH1 >= $NFRAMESMIN    && ($nFramesL1 >= $NFRAMESMIN || $nFramesV1 >= $NFRAMESMINV)) ||
-          if ($nFramesH1 >= $NFRAMESMIN   && $nFramesL1 >= $NFRAMESMIN) {
-#              ($nFramesL1 >= $NFRAMESMIN    && ($nFramesH1 >= $NFRAMESMIN || $nFramesV1 >= $NFRAMESMINV)) ||
-#              ($nFramesV1 >= $NFRAMESMINV && ($nFramesH1 >= $NFRAMESMIN || $nFramesL1 >= $NFRAMESMIN))) {
+##NEW         
+          $optionFlag = $optionFlagH1+$optionFlagL1;   
+##NEW
+          if ($nFramesH1 >= $NFRAMESMIN_NEW || $nFramesL1 >= $NFRAMESMIN_NEW && $optionFlag != 3) {
 
             #=== Set condor flag ===#
             $condorFlag = 1;
+            printf LOGFILE "Condor flag:  %s:  \n", $condorFlag;
 
           } else {
             $jobStatus = 'NOFRAMES';
+            printf LOGFILE "Job status:  %s:  \n", $jobStatus;
+            printf PROCESSEDGRB "%s\n", $grbName;
+            $processedGrbs[$#processedGrbs+1] = sprintf "%s", $grbName;
           }
 
           #=== Determine IFOs with science segments ===#
-          @netIfos  = ();
-          #$gpsStart = $grbGPS - ($SEARCHDURATION - 120.0);
-          #$gpsStart = int($grbGPS - $SEARCHDURATION/2);
-          #$gpsStart = int($grbGPS - $SEARCHBEFORE);
-          $gpsStart = int($grbGPS - $SEGDURATION_CBC);
-          #$gpsEnd   = $gpsStart + $SEARCHDURATION;
-          $gpsEnd   = $gpsStart + 2*$SEGDURATION_CBC;
+          @netIfos1  = ();
+          $gpsStart = int($grbGPS - $SEGDURATIONLEFT_NEW);
+          $gpsEnd   = int($gpsStart + $SEGDURATION_CBC_NEW);
           printf "$gpsStart $gpsEnd\n";
-          @netIfos = findIFONetwork($LIGORUN,\@ALLIFOS,$grbGPS,$gpsStart,$gpsEnd,$SEARCHDURATION,\@SEGMENTTYPE,$SEGSERVER);
-         
-          if ($condorFlag) {
+          @netIfos1 = findIFONetwork($LIGORUN,\@ALLIFOS,$grbGPS,$gpsStart,$gpsEnd,$SEGDURATION_CBC_NEW,\@SEGMENTTYPE,$SEGSERVER);
+          
+          @netIfos2  = ();
+          $gpsEnd   = int($grbGPS + $SEGDURATIONRIGHT_NEW);
+          $gpsStart = int($gpsEnd - $SEGDURATION_CBC_NEW);
+          printf "$gpsStart $gpsEnd\n";
+          @netIfos2 = findIFONetwork($LIGORUN,\@ALLIFOS,$grbGPS,$gpsStart,$gpsEnd,$SEGDURATION_CBC_NEW,\@SEGMENTTYPE,$SEGSERVER);
+
+          @netIfos  = ();
+          if ($#netIfos1 > $#netIfos2) {
+          @netIfos = @netIfos1;
+          } else {
+          @netIfos = @netIfos2;
+          }
+
+
+           if ($condorFlag) {
 
             #=== Check that there are at least two available networks ===#
-            if ($#netIfos + 1 >= 2) {
+#            if ($#netIfos + 1 >= 2) {
+            #=== Check that there are at least one available ifo ===#
+            if ($#netIfos + 1 >= 1) {
 
               #=== Check that frames are available ===#
               foreach $ifo (@netIfos) {
                 $nFramesIFO = 0;
                 $nFramesIFO = eval sprintf "\$nFrames%s", $ifo;
                 if ($ifo ne 'V1') {
-                  if ($nFramesIFO < $NFRAMESMIN) {
+                  if ($nFramesIFO < $NFRAMESMIN_NEW) {
                     $jobStatus = 'NOFRAMES';
+                    printf PROCESSEDGRB "%s\n", $grbName;
+                    $processedGrbs[$#processedGrbs+1] = sprintf "%s", $grbName;
                   }
                 } 
-#                } else {
-#                  if ($nFramesIFO < $NFRAMESMINV) {
-#                    $jobStatus = 'NOFRAMES';
-#                  }
-#                }
               }
+               
+                #=== Update veto file ====#
+                #$curl_vetofile = sprintf "curl --output /home/grb.exttrig/Online/O1/processor/params/CBC/H1L1-HOFT_C00_O1_CBC.xml https://code.pycbc.phy.syr.edu/detchar/veto-definitions/download/master/cbc/O1/H1L1-HOFT_C00_O1_CBC.xml";
+                #system $curl_vetofile;
+
+                #=== Update GRB parameters ====#
+                $updateparam = sprintf "./getupdatedparam.pl %s CBC", $grbName;
+                system $updateparam;
+                $UPGRBDIR = sprintf "%s/updated_param",$GRBDIR;
+                $updatedGrbFile   = sprintf "%s/%s_updatedparam_CBC.txt", $UPGRBDIR, $grbName;
+                open UPGRBFILE, "<$updatedGrbFile"
+                     or die "Error opening updated GRB file $updatedGrbFile: $!";
+                chomp(@inputLinesAll = <UPGRBFILE>);
+                close UPGRBFILE;
+                foreach $inputLine (@inputLinesAll) {
+
+                  if ($inputLine =~ /\#/) {
+                    next;
+                   }
+
+                if ($inputLine =~ /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/) {
+                $grbGPS_u= $1;
+                $grbRA_u=$2;
+                $grbDec_u=$3;
+                $grbError_u=$4;
+                $grbTrigDur_u=$5;
+
+                } else {
+                printf LOGFILE "Error reading GRB file:  $inputLine\n";
+                next;
+                 }
+                }
+                if ($grbGPS_u ne "") {
+                $grbGPS = ceil($grbGPS_u);
+                $grbRA = $grbRA_u;
+                $grbDec = $grbDec_u;
+                $grbError = $grbError_u;
+                $grbTrigDur = $grbTrigDur_u;
+                }
+
+                if ($grbTrigDur > 1.024) {
+                $jobStatus = 'LONGGRB';
+                printf PROCESSEDGRB "%s\n", $grbName;
+                $processedGrbs[$#processedGrbs+1] = sprintf "%s", $grbName;
+                }
+
 
               #=== If frames are available ===#
-              if ($jobStatus ne 'NOFRAMES') {
+              if ($jobStatus ne 'NOFRAMES' && $jobStatus ne 'LONGGRB') {
 
                 #=== Write processed GRB to file ===#
                 printf PROCESSEDGRB "%s\n", $grbName;
@@ -481,198 +566,128 @@ while (1) {
 
 
                 if ($mkdirResult == 0) { 
-                  $gpsTimeNow    = `tconvert now`;
+                  $gpsTimeNow    = `lalapps_tconvert now`;
                   $latency = ($gpsTimeNow - $grbGPS)/60;
                   $latency = sprintf("%.2f",$latency);
-                  #=== Write all segments to file ===#
-#                  $gpsStart = $grbGPS - $SEGDURATION_CBC;
-#                  $gpsEnd   = $gpsStart + $SEARCHDURATION + 2*$SEGDURATION_CBC;
-#                  @segmentFlag = ();
-#printf "$gpsStart $gpsEnd\n";
-#                  @segmentFlag = querySegments($LIGORUN,\@netIfos,$grbGPS,$gpsStart,$gpsEnd,$MINDURATION,
-#                                 \@SEGMENTTYPE,$SEGSERVER,$WRITESEGSFLAG,$jobDir);
-
-                  #=== Prepare .ini file ===#
 
                   $ifoString = '';
                   foreach $ifo (@netIfos) {
                     $ifoString = "$ifoString"."$ifo";
                   }
+                  $detectorString = ''; 
                   foreach $netIfo (@netIfos) {
                     $detectorString = sprintf "%s --detector %s", $detectorString, $netIfo;
                   }
 
-                  $iniFileone = sprintf "%s/ADE_GRB_trigger_hipe.ini", $PARAMSDIR;
-                  $iniFileoneto = sprintf "%s/ADE_GRB_trigger_hipe.ini", $jobDir;
-                  $cpCommandone = sprintf "cp %s %s", $iniFileone, $iniFileoneto;
-                  system $cpCommandone;
+                  #$iniFileone = sprintf "%s/%s", $PARAMSDIR, $ANALYSIS_FILE;
+                  #$iniFileoneto = sprintf "%s/%s", $jobDir, $ANALYSIS_FILE;
+                  #$cpCommandone = sprintf "cp %s %s", $iniFileone, $iniFileoneto;
+                  #system $cpCommandone;
 
-                  $iniFiletwo = sprintf "%s/ADE_injections_vlow.ini", $PARAMSDIR;
-                  $iniFiletwoto = sprintf "%s/ADE_injections_vlow.ini", $jobDir;
-                  $cpCommandtwo = sprintf "cp %s %s", $iniFiletwo, $iniFiletwoto;
-                  system $cpCommandtwo;
+                  #$iniFilethree = sprintf "%s/%s", $PARAMSDIR, $VETO_FILE;
+                  #$iniFilethreeto = sprintf "%s/%s", $jobDir, $VETO_FILE;
+                  #$cpCommandthree = sprintf "cp %s %s", $iniFilethree, $iniFilethreeto;
+                  #system $cpCommandthree;
+ 
+                  #$iniFilefive = sprintf "%s/%s", $PARAMSDIR, $DATA_FILE;
+                  #$iniFilefiveto = sprintf "%s/%s", $jobDir, $DATA_FILE;
+                  #$cpCommandfive = sprintf "cp %s %s", $iniFilefive, $iniFilefiveto;
+                  #system $cpCommandfive;
 
-                  $iniFilethree = sprintf "%s/bank_veto_bank.xml", $PARAMSDIR;
-                  $iniFilethreeto = sprintf "%s/bank_veto_bank.xml", $jobDir;
-                  $cpCommandthree = sprintf "cp %s %s", $iniFilethree, $iniFilethreeto;
-                  system $cpCommandthree;
+                  #$iniFiletwo = sprintf "%s/%s", $PARAMSDIR, $INJ_FILE;
+                  #$iniFiletwoto = sprintf "%s/%s", $jobDir, $INJ_FILE;
+                  #$cpCommandtwo = sprintf "cp %s %s", $iniFiletwo, $iniFiletwoto;
+                  #system $cpCommandtwo;
 
-                  #=== Prepare condor command ===#
-                  $condorCommand = sprintf "condor_submit_dag ADE_GRB_trigger_hipe_onoff_uberdag.dag";
-#                  $exportCommand = sprintf "export _CONDOR_DAGMAN_LOG_ON_NFS_IS_ERROR=FALSE";
+                  #$iniFilefour = sprintf "%s/%s", $PARAMSDIR, $PP_FILE;
+                  #$iniFilefourto = sprintf "%s/%s", $jobDir, $PP_FILE;
+                  #$cpCommandfour = sprintf "cp %s %s", $iniFilefour, $iniFilefourto;
+                  #system $cpCommandfour;
 
+                  #$iniFilesix = sprintf "%s/TMPLTBANKS/%s", $PARAMSDIR, $TEMPLATEBANKFILE;
+                  #$iniFilesixto = sprintf "%s/%s", $jobDir, $TEMPLATEBANKFILE;
+                  #$cpCommandsix = sprintf "cp %s %s", $iniFilesix, $iniFilesixto;
+                  #system $cpCommandsix;
 
                   chdir "$jobDir";
-                  $SKY_JITTER = $grbError;
+                  #$SKY_JITTER = $grbError;
                   
                   if ($grbSat eq 'Fermi') {
-                    $SatFlag = 'true';
+                    $SKY_ERROR = $grbError;
                   } else {
-                    $SatFlag = 'false';
+                    $SKY_ERROR = 0;
                     }
 
-                  $catCommand1 = sprintf "cat %s | sed s/JITTER/%s/ > temp.ini", $INJ_FILE, $SKY_JITTER; 
-                  #printf "$catCommand1\n";
-                  system $catCommand1;
-                  $catCommand2 = sprintf "cat temp.ini | sed s/FERMIFLAG/%s/ > %s", $SatFlag, $INJ_FILE;
-                  #printf "$catCommand2\n";
-                  system $catCommand2;
-                  $rmCommand = sprintf "rm -f temp.ini";
-                  system $rmCommand;
+                  $HTML_DIR_GRB = sprintf "%s/GRB%s", $HTML_DIR, $grbName;
+                  $starttime = $grbGPS - $SEGDURATIONLEFT_CBC;
+                  $endtime = $starttime + $SEGDURATION_CBC;
+                  
+                  $getworkflow = sprintf "wget http://pycbc.phy.syr.edu/pycbc-software/v1.4.1/x86_64/composer_xe_2015.0.090/pycbc_make_offline_grb_workflow";
+                  system $getworkflow;
+                  $permissionworkflow = "chmod 755 ./pycbc_make_offline_grb_workflow";
+                  system $permissionworkflow;
 
+                  $getsubmitdax = sprintf "wget http://pycbc.phy.syr.edu/pycbc-software/v1.4.1/x86_64/composer_xe_2015.0.090/pycbc_submit_dax";
+                  system $getsubmitdax;
+                  $permissionsubmitdax = sprintf "chmod 755 ./pycbc_submit_dax";
+                  system $permissionsubmitdax;
+ 
                   if ($grbSat eq 'Fermi') {
-                    $pylalFile = sprintf "%s/pylal_coh_PTF_sky_containment_modify.py", $PARAMSDIR;
-                    $pylalFileto = sprintf "%s/pylal_coh_PTF_sky_containment_modify.py", $jobDir;
-                    $cpCommandpylal = sprintf "cp %s %s", $pylalFile, $pylalFileto;
-                    system $cpCommandpylal;
-                    $SKY_JITTER_ARCMIN = $SKY_JITTER*60;
-                    $pylalCommand = '';
-                    $pylalCommand = sprintf "python pylal_coh_PTF_sky_containment_modify.py -s 'fermi' -e %s -n 1.65 -a 7.5", $SKY_JITTER_ARCMIN;
-                    $SKY_ERROR = -1;
-                    $SKY_ERROR = `$pylalCommand`;
-                    chomp($SKY_ERROR);
-                    #printf "$SKY_ERROR\n";
-                    $sedCommand = sprintf "sed -i 's/\\[coh_PTF_inspiral\\]/[coh_PTF_inspiral]\\nsky-error = %s/g' %s", $SKY_ERROR, $CONFIG_FILE;
-                    #printf "$sedCommand\n";
-                    system $sedCommand;
-                    }
+                    #$pylalFile = sprintf "%s/pylal_coh_PTF_sky_containment_modify.py", $PARAMSDIR;
+                    #$pylalFileto = sprintf "%s/pylal_coh_PTF_sky_containment_modify.py", $jobDir;
+                    #$cpCommandpylal = sprintf "cp %s %s", $pylalFile, $pylalFileto;
+                    #system $cpCommandpylal;
+                    #$SKY_JITTER_ARCMIN = $SKY_JITTER*60;
+                    #$pylalCommand = '';
+                    #$pylalCommand = sprintf "python pylal_coh_PTF_sky_containment_modify.py -s 'fermi' -e %s -n 1.65 -a 7.5", $SKY_JITTER_ARCMIN;
+                    #$SKY_ERROR = -1;
+                    #$SKY_ERROR = `$pylalCommand`;
+                    #chomp($SKY_ERROR);
+                    #$sedCommand = sprintf "sed -i 's/\\[jitter_skyloc\\]/[jitter_skyloc]\\napply-fermi-error = /g' %s", $INJ_FILE;
+                    #system $sedCommand;
+                  $prepCommand = sprintf "./pycbc_make_offline_grb_workflow --config-files https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/executables_production.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/analysis_o2.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/injections_o2.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/online_o2.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/postprocessing_o2.ini --config-overrides workflow:output-directory:%s workflow:ra:%s workflow:dec:%s workflow:sky-error:%s workflow:trigger-name:%s workflow:trigger-time:%s workflow:start-time:%s workflow:end-time:%s workflow:html-dir:%s jitter_skyloc:apply-fermi-error:", $jobDir, $grbRA, $grbDec, $SKY_ERROR, $grbName, $grbGPS, $starttime, $endtime, $HTML_DIR_GRB;                    
+                    } else{
+                  $prepCommand = sprintf "./pycbc_make_offline_grb_workflow --config-files https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/executables_production.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/analysis_o2.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/injections_o2.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/online_o2.ini https://code.pycbc.phy.syr.edu/ligo-cbc/pycbc-config/download/1630c60bf912b0ca671c2b9906a922a1e8c6df73/O2/pygrb/postprocessing_o2.ini --config-overrides workflow:output-directory:%s workflow:ra:%s workflow:dec:%s workflow:sky-error:%s workflow:trigger-name:%s workflow:trigger-time:%s workflow:start-time:%s workflow:end-time:%s workflow:html-dir:%s", $jobDir, $grbRA, $grbDec, $SKY_ERROR, $grbName, $grbGPS, $starttime, $endtime, $HTML_DIR_GRB;
+                   }
 
-
-                  if ($ifoString eq 'H1V1') {
-                     $BankIfo = 'H1';
-                  } else {
-                     $BankIfo = 'L1';
-                    }
-
-                  $sedCommand2 = sprintf "sed -i 's/\\[templatebank-meta\\]/[templatebank-meta]\\nbank-ifo = %s/g' %s", $BankIfo, $CONFIG_FILE;
-                  system $sedCommand2;
-
-#                  `source ~/.master_20130922`;                   
-#                  $sourceexe = sprintf "source ~/.master_20130922";  
-#                  $s6segserver = sprintf "S6_SEGMENT_SERVER=https://segdb-er.ligo.caltech.edu";
-#                  `S6_SEGMENT_SERVER=https://segdb-er.ligo.caltech.edu`;
-##                  $pylalcommand = sprintf "pylal_exttrig_dataquery --name %s \\
-##                     --time %s --config-file %s \\
-##                     --make-xml --ra %s --dec %s", $grbName, $grbGPS, $CONFIG_FILE, $grbRA, $grbDec;
-#                  system $sourceexe
-
-#                  @sourceexeResult = `$sourceexe`;
-#                  @s6segserverResult = `$s6segserver`;
-#                  @pylalcommanResult = `$pylalcommand`;
-##printf "$pylalcommand\n";
-
-##                  $pylalcommanResult = 1;
-##                  $pylalcommanResult  = system $pylalcommand;
-
-# For cohPTF run with injections and timeslide 
-#                  $prepCommand = sprintf "lalapps_trigger_hipe \\
-#                     --extend --make-xml --make-plots --do-coh-PTF --do-slides \\
-#                     --name %s --time %s --offset %s --ra %s --dec %s \\
-#                     --config-file %s --injection-config %s --log-path %s \\
-#                     --user-tag onoff --number-buffer-left 8 --number-buffer-right 8 \\
-#                     --verbose --padding-time 72", $grbName, $grbGPS, $OFFSET, $grbRA, $grbDec, $CONFIG_FILE, $INJ_FILE, $LOGPATH;
 # For cohPTF run without injections but with timeslide 
-                  $prepCommand = sprintf "lalapps_trigger_hipe \\
-                     --extend --make-xml --make-plots --do-coh-PTF --do-slides\\
-                     --name %s --time %s --offset %s --ra %s --dec %s \\
-                     --config-file %s --injection-config injectionsWI.ini --log-path %s \\
-                     --user-tag onoff --number-buffer-left 8 --number-buffer-right 8 \\
-                     --verbose --padding-time 72", $grbName, $grbGPS, $OFFSET, $grbRA, $grbDec, $CONFIG_FILE, $LOGPATH;
+                  #$LOCAL_CONFIG_FILES = sprintf "%s %s %s %s %s", $ANALYSIS_FILE, $INJ_FILE, $PP_FILE, $VETO_FILE, $DATA_FILE;
+                  #$HTML_DIR_GRB = sprintf "%s/GRB%s", $HTML_DIR, $grbName;
+                  #$BANK_FILE = sprintf "%s/%s", $JOBSDIR, $TEMPLATEBANKFILE;
+                  #$starttime = $grbGPS - $SEGDURATIONLEFT_CBC;
+                  #$endtime = $starttime + $SEGDURATION_CBC;     
+                  #$prepCommand = sprintf "pycbc_make_offline_grb_workflow --config-files %s --config-overrides workflow:output-directory:%s workflow:ra:%s workflow:dec:%s workflow:sky-error:%s workflow:trigger-name:%s workflow:trigger-time:%s workflow:start-time:%s workflow:end-time:%s workflow:html-dir:%s", $LOCAL_CONFIG_FILES, $jobDir, $grbRA, $grbDec, $SKY_ERROR, $grbName, $grbGPS, $starttime, $endtime, $HTML_DIR_GRB;
 
-printf "$prepCommand\n";
+#                  $prepCommand = sprintf "pycbc_make_offline_grb_workflow --config-files https://code.pycbc.phy.syr.edu/andrew-williamson/pycbc-config/download/pygrb_o2/O2/pygrb/executables_production.ini https://code.pycbc.phy.syr.edu/andrew-williamson/pycbc-config/download/pygrb_o2/O2/pygrb/analysis_o2.ini https://code.pycbc.phy.syr.edu/andrew-williamson/pycbc-config/download/pygrb_o2/O2/pygrb/injections_o2.ini https://code.pycbc.phy.syr.edu/andrew-williamson/pycbc-config/download/pygrb_o2/O2/pygrb/online_o2.ini https://code.pycbc.phy.syr.edu/andrew-williamson/pycbc-config/download/pygrb_o2/O2/pygrb/postprocessing_o2.ini --config-overrides workflow:output-directory:%s workflow:ra:%s workflow:dec:%s workflow:sky-error:%s workflow:trigger-name:%s workflow:trigger-time:%s workflow:start-time:%s workflow:end-time:%s workflow:html-dir:%s", $jobDir, $grbRA, $grbDec, $SKY_ERROR, $grbName, $grbGPS, $starttime, $endtime, $HTML_DIR_GRB;
+    
+                  printf "$prepCommand\n";
 
                   $prepResult = 1;
                   $prepResult = system $prepCommand;
 
-                  # === Fix (for ER6) channel-name issue #
-                  chdir "$SCRIPTSDIR";
-                  $fixchannelname = sprintf "python CBCstringreplace.py --grb-name $grbName --script-dir $SCRIPTSDIR";
-                  system $fixchannelname;
-
-                  # === Put (ER6) resource allocation to sub files #
-                  $DATA_FINDDIR = sprintf "%s/GRB%s/datafind", $jobDir, $grbName;
-                  chdir "$DATA_FINDDIR";
-                  $H1_TMPLTBANK_SUB = sprintf "datafind.tmpltbank_H1.GRB%s_DATAFIND.sub", $grbName;
-                  $L1_TMPLTBANK_SUB = sprintf "datafind.tmpltbank_L1.GRB%s_DATAFIND.sub", $grbName;     
-                  $V1_TMPLTBANK_SUB = sprintf "datafind.tmpltbank_V1.GRB%s_DATAFIND.sub", $grbName;  
-                  if (-e $H1_TMPLTBANK_SUB) {
-                  $sedCommand_H1 = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $H1_TMPLTBANK_SUB;
-                  system $sedCommand_H1;
-                  }
-                  if (-e $L1_TMPLTBANK_SUB) {
-                  $sedCommand_L1 = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $L1_TMPLTBANK_SUB;
-                  system $sedCommand_L1;
-                  }
-                  if (-e $V1_TMPLTBANK_SUB) {
-                  $sedCommand_V1 = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $V1_TMPLTBANK_SUB;
-                  system $sedCommand_V1;
-                  }
-                  
-                  $ONOFFDIR = sprintf "%s/GRB%s/onoff", $jobDir, $grbName;
-                  chdir "$ONOFFDIR";
-                  $SPLTBANK_SUB = sprintf "splitbank.sub";
-                  $INSPIRAL_SUB = sprintf "coh_PTF_inspiral.sub";
-                  if (-e $SPLTBANK_SUB) {
-                  $sedCommand_spltbank = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $SPLTBANK_SUB;
-                  system $sedCommand_spltbank;
-                  }
-                  if (-e $INSPIRAL_SUB) {
-                  $sedCommand_insbank = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $INSPIRAL_SUB;
-                  system $sedCommand_insbank;
-                  }
-
-                  $TSDIR = sprintf "%s/GRB%s/timeslides", $jobDir, $grbName;
-                  chdir "$TSDIR";
-                  $SPLTBANK_SUB = sprintf "splitbank.sub";
-                  $INSPIRAL_SUB = sprintf "coh_PTF_inspiral.sub";
-                  if (-e $SPLTBANK_SUB) {
-                  $sedCommand_spltbank = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $SPLTBANK_SUB;
-                  system $sedCommand_spltbank;
-                  }
-                  if (-e $INSPIRAL_SUB) {
-                  $sedCommand_insbank = sprintf "sed -i 's/notification = never/notification = never\\nRequirements = (TARGET.Online_CBC_cohPTF =?= True)\\n+Online_CBC_cohPTF = True/g' %s", $INSPIRAL_SUB;
-                  system $sedCommand_insbank;
-                  }
-
-                  chdir "$jobDir";
-                  ##################################################
-                  
+                  print "pygrb command output: ";
+                  print "$prepResult\n"; 
                   #=== Submit condor jobs ===#
                   if ($prepResult == 0) {
                     $currentTime = time;
                     $timeString = localtime $currentTime;
-                    printf LOGFILE "GRB %s:  Submitting condor jobs on %s.\n", $grbName, $timeString;
+                    printf LOGFILE "GRB %s: Preparing pegasus plan %s.\n", $grbName, $timeString;
+                    $grbDir  = sprintf "%s/%s", $jobDir, $jobGrbDir; 
+                    chdir "$grbDir"; 
+                    $Pegasusjob_LOGPATH = sprintf "/home/%s/log/%s/GRB%s", $USERNAME, $LIGORUN, $grbName;
+                    system "mkdir -p $Pegasusjob_LOGPATH"; 
+                    $pegasus_plan = sprintf "../pycbc_submit_dax --dax pygrb_offline.dax --accounting-group ligo.prod.o2.cbc.grb.cohptfonline --local-dir %s --no-create-proxy --append-site-profile 'local:condor|accounting_group_user:dipongkar.talukder'", $Pegasusjob_LOGPATH; 
                     $jobCluster   = 0;
                     @condorResult = ();
-#                    @exportResult = `$exportCommand`;
-		    @condorResult = `$condorCommand`;
+		    @condorResult = `$pegasus_plan`;
                     chomp(@condorResult);
                     foreach $condorLine (@condorResult) {
                       if ($condorLine =~ /cluster (\d+)/) {
-                        $jobCluster = $1;
+                        $jobCluster = $1;                      
                         last;
                       }
                     }
+  
                     if ($jobCluster != 0) {
                       printf "condor command for GRB %s successfully launched on cluster %d\n", $grbName, $jobCluster;
                       $jobStatus = 'SUBMITTED';
@@ -715,14 +730,14 @@ printf "$prepCommand\n";
             chomp($lineNumber);
           }
           
-          $grbDate    = `tconvert $grbGPS -f %Y-%m-%d`;
+          $grbDate    = `lalapps_tconvert -f %Y-%m-%d $grbGPS`;
           chomp($grbDate);
-          $grbTime    = `tconvert $grbGPS -f %T`;
+          $grbTime    = `lalapps_tconvert -f %T $grbGPS`;
           chomp($grbTime);          
 
           if ($lineNumber =~ /^[1-9]/) {
-            $monitorString = sprintf "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %s %s %s %s %03d",
-                             $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat,
+            $monitorString = sprintf "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %7.3f %s %s %s %s %03d",
+                             $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $grbTrigDur,
                              $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
             $sedCommand = sprintf "sed '%ds/.*/%s/' %s > %s",
                           $lineNumber, $monitorString, $statusFile, $tempFile;
@@ -741,28 +756,26 @@ printf "$prepCommand\n";
             $| = 1;
             select STDOUT;
 
-            printf STATFILE "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %s %s %s %s %03d\n",
-                   $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
+            printf STATFILE "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %7.3f %s %s %s %s %03d\n",
+                   $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $grbTrigDur, $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
             close STATFILE;
           }
 
           #=== Note current time ===#
-          $gpsTime    = `tconvert now`;
+          $gpsTime    = `lalapps_tconvert now`;
           chomp($gpsTime);
 #          $gpsTime    = 1058716992;
-          $timeString = `tconvert $gpsTime`;
+          $timeString = `lalapps_tconvert $gpsTime`;
           chomp($timeString);
 
 
           #=== Calculate processing time in hours ===#
           $processTime = 0;
           $processTime = ($gpsTime - $grbGPS)/3600.0;
+          $processTime = sprintf "%5.3f", $processTime;
           if ($processTime < 0) {
             $processTime = 0;
           }
-
-#          createGrbNotes($grbName,$grbGPS,$grbDate,$grbTime,$grbHttp,
-#                         $grbRA,$grbDec,$grbError,$PUBLICDIR);
 
           printf NOTESFILE "%s\n", $grbName;
 
@@ -775,9 +788,6 @@ printf "$prepCommand\n";
         #======================================================================#
         #                       End loop through GRBs                          #
         #======================================================================#
-
-      #}
-      #=== Endif timestamp check ===#
 
     } else {
       printf LOGFILE "Input GRB file $currentGrbFile does not exist.\n";
@@ -804,18 +814,37 @@ printf "$prepCommand\n";
 
 sub sendStatusMessage {
 
-  $emailsFile   = sprintf "%s/grbemails.txt", $SCRIPTSDIR;
+  $emailsFile   = sprintf "%s/eventadvocate/%s_grbemails.txt", $SCRIPTSDIR, $grbName;
   $messagesFile = sprintf "%s/grbmessages_%s.log", $SCRIPTSDIR, $LIGORUN;
 
   $eheaderTable = {};
-  $eheaderTable->{'SUBJECT'} = sprintf "[cohPTF] GRB %s %s", $grbName, $jobStatus;
+  $eheaderTable->{'SUBJECT'} = sprintf "[PyGRB] GRB %s %s", $grbName, $jobStatus;
 
   #=== Construct the message ===#
   if ($jobStatus eq 'SUBMITTED') {
+         if ($ANNOTATEFLAG eq 'YES') {
+         $annotateFile = sprintf "%s/logGraceDB_CBC_start_template.py", $SCRIPTSDIR;
+         $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/HOUR/%s/g' -e 's/NETWORK/%s/g'> logGraceDB.py", $annotateFile, $grbName, $processTime, $ifoString;
+         system $catCommand;
+         $logCommand = sprintf "python logGraceDB.py";
+         system $logCommand;
+         $rmCommand = sprintf "rm -f logGraceDB.py";
+         system $rmCommand;    
+         }
     $noticeString = sprintf "GRB %s has been %s, %8.3f hours after the trigger.",
                                  $grbName, $jobStatus, $processTime;
   } else {
-    if ($jobStatus eq 'DATACUT' || $jobStatus eq 'NOFRAMES') {
+         if ($ANNOTATEFLAG eq 'YES') {
+         $annotateFile = sprintf "%s/annotateGraceDB_CBC_nodata_template.py", $SCRIPTSDIR;
+         $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g'> annotateGraceDB.py", $annotateFile, $grbName;
+         system $catCommand;
+         $logCommand = sprintf "python annotateGraceDB.py";
+         system $logCommand;
+         $rmCommand = sprintf "rm -f annotateGraceDB.py";
+         system $rmCommand;
+         }
+
+    if ($jobStatus eq 'DATACUT' || $jobStatus eq 'NOFRAMES' || $jobStatus eq 'LONGGRB') {
       $noticeString = sprintf "GRB %s cannot be analyzed, %8.3f hours after the trigger.",
                                    $grbName, $processTime;
     } else {

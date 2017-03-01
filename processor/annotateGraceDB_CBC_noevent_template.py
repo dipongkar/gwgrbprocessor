@@ -2,7 +2,7 @@ from ligo.gracedb.rest import GraceDb, HTTPError
 
 gracedb = GraceDb()
 graceid = 'EVENT_ID'
-message = 'cohPTF results: No event for M_chirp in [0,8]. For full results, see <a href="https://ldas-jobs.ligo.caltech.edu/~grb.exttrig/grb/online/preER7/GRBEVENT_ID/OPEN_summary.html">here</a>.'
+message = 'Online PyGRB: No significant event in on-source (FAP = FAP_VAL for the most significant event). For full results, see <a href="PUBSERVER/~USERNAME/grb/online/LIGORUN/GRBEVENT_ID/GRBEVENT_ID_OPEN/summary.html">here</a>.'
 try:
   r = gracedb.writeLog(graceid,message,tagname="ext_coinc")
   print "Response status: %d" % r.status

@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
-require 'exttrig_utils.pl';
-require 'exttrig_params.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_utils.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_params.pl';
 
 #=== Get user name ===#
 $USERNAME = `whoami`;
@@ -47,79 +47,21 @@ foreach $openboxJob (@openboxJobs) {
     #=== Set default open box link ===#
         $openboxLink = '';
 
-#    $condorCommand = sprintf "condor_q %d", $openjobCluster;
-#    @condorResult  = ();
-#    @condorResult  = `$condorCommand`;
-#    chomp(@condorResult);
-
-    #=== If job is not found ===#
-#    if ($#condorResult < 4) {
-#      $failFetchFlag = 0;
-#      if ($#condorResult+1 == 0) {
-#        $failFetchFlag = 1;
-#      }
-#      if ($failFetchFlag == 0) {
-
-        #=== Copy open-box files to public web directory ===#
-#        $AUTOWEB = sprintf "%s/Xpipeline/GRB%s/auto_web", $SCRIPTSDIR, $grbName;
-#        $HTMLDIR = sprintf "%s/%s_online", $PUBLICDIR, $grbName;
-
         $RUN_DIRECTORY = sprintf "%s/GRB%s", $JOBSDIR, $grbName;
         $PPDir = sprintf "%s/GRB%s/GRB%s/post_processing", $JOBSDIR, $grbName, $grbName;
-        $CONFIG_FILE      = sprintf "ADE_GRB_trigger_hipe.ini";
-
-        if ($grbSat eq 'Fermi') { 
-# For cohPTF run with injections
-#          $WriteWebpageCommand = sprintf "coh_PTF_html_summary --open-box --mass-bins 0-8 \\
-#          --grb-xml %s/GRB%s/triggerGRB%s.xml \\
-#          --ifo-tag %s \\
-#          --output-path %s/output \\
-#          --config-file %s/%s \\
-#          --exclusion-injections injectionsAstroNSBH_FILTERED_30,injectionsAstroNSNS_FILTERED_30\\
-#          --tuning-injections injectionsDetectionFull --sky-grid", $RUN_DIRECTORY, $grbName, $grbName, $ifoString, $PPDir, $RUN_DIRECTORY, $CONFIG_FILE;
-
-# For cohPTF run without injections
-          $WriteWebpageCommand = sprintf "coh_PTF_html_summary --open-box --mass-bins 0-8 \\
-          --grb-xml %s/GRB%s/triggerGRB%s.xml \\
-          --ifo-tag %s \\
-          --output-path %s/output \\
-          --config-file %s/%s --sky-grid", $RUN_DIRECTORY, $grbName, $grbName, $ifoString, $PPDir, $RUN_DIRECTORY, $CONFIG_FILE;
-        } else {
-# For cohPTF run with injections
-#          $WriteWebpageCommand = sprintf "coh_PTF_html_summary --open-box --mass-bins 0-8 \\
-#          --grb-xml %s/GRB%s/triggerGRB%s.xml \\
-#          --ifo-tag %s \\
-#          --output-path %s/output \\
-#          --config-file %s/%s \\
-#          --exclusion-injections injectionsAstroNSBH_FILTERED_30,injectionsAstroNSNS_FILTERED_30\\
-#          --tuning-injections injectionsDetectionFull", $RUN_DIRECTORY, $grbName, $grbName, $ifoString, $PPDir, $RUN_DIRECTORY, $CONFIG_FILE;
-
-# For cohPTF run without injections
-           $WriteWebpageCommand = sprintf "coh_PTF_html_summary --open-box --mass-bins 0-8 \\
-           --grb-xml %s/GRB%s/triggerGRB%s.xml \\
-           --ifo-tag %s \\
-           --output-path %s/output \\
-           --config-file %s/%s", $RUN_DIRECTORY, $grbName, $grbName, $ifoString, $PPDir, $RUN_DIRECTORY, $CONFIG_FILE;
-          }
-
-        $WriteWebpageResult = 1;
-        $WriteWebpageResult = system $WriteWebpageCommand;
-
-
-        $Openhtml = sprintf "%s/output/summary.html", $PPDir;
-        $Openhtmlto = sprintf "%s/GRB%s/OPEN_summary.html", $PUBLICDIR, $grbName;
-        $cpCommand = sprintf "cp %s %s", $Openhtml, $Openhtmlto;
-        system "$cpCommand";
+        $openboxscript = sprintf "sh %s/open_the_box.sh", $PPDir;
+        system $openboxscript;
 
         #=== Note finish time of analysis ===#
-        $gpsTime    = `tconvert now`;
+        $gpsTime    = `lalapps_tconvert now`;
         chomp($gpsTime);
-        $timeString = `tconvert $gpsTime`;
+        $timeString = `lalapps_tconvert $gpsTime`;
         chomp($timeString);
 
         #=== Calculate processing time in hours ===#
         $processTime = 0;
         $processTime = ($gpsTime - $grbGPS)/3600.0;
+        $processTime = sprintf "%5.3f", $processTime;
         if ($processTime < 0) {
           $processTime = 0;
         }
@@ -143,7 +85,7 @@ foreach $openboxJob (@openboxJobs) {
         }
 
         #=== Specify link with results ===#
-        $openboxLink = sprintf "%s\\/GRB%s\\/OPEN_summary.html", $RESULTSURL, $grbName;
+        $openboxLink = sprintf "%s\\/GRB%s\\/GRB%s_OPEN\\/summary.html", $RESULTSURL, $grbName, $grbName;
 
         #=== Update search status web page ===#
         $searchStatusTable = {};
@@ -153,6 +95,7 @@ foreach $openboxJob (@openboxJobs) {
         updateWebStatusPTF($searchStatusTable,$htmlFile,$lineOffset,$resultsLink,$openboxLink);
         
         #=== Annotate the GraceDB external trigger event ===#
+        if ($ANNOTATEFLAG eq 'YES') {
         $loudNumbersFile = sprintf "%s/output/ONSOURCE/efficiency/loud_numbers.txt", $PPDir;
         if (-e $loudNumbersFile) {
            open LOUDNUMBERS, "<$loudNumbersFile"
@@ -163,72 +106,104 @@ foreach $openboxJob (@openboxJobs) {
             $onSourceFAP = ();
         }
 
-        if ($onSourceFAP >= 0 and $onSourceFAP ne "") {
-          #$FAP = '';
-          #$gracedbCommand = sprintf "gracedb log %s cohPTF results: No event for M_chirp in [0,8]. For full results, see '<a href=\"%s\">here</a>.'", $grbName, $openboxLink;
-          #printf $gracedbCommand;
-          #$gracedbAnnotate = system $gracedbCommand;
-          #$gracedbAnnotate = `$gracedbCommand`;
-          #$annotateFile = sprintf "%s/annotateGraceDB_CBC_noevent_template.py", $SCRIPTSDIR;
-          #$catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB.py", $annotateFile, $grbName;
-          #system $catCommand1;
-          #$annotateCommand = sprintf "python annotateGraceDB.py";
-          #system $annotateCommand;
-          #$rmCommand = sprintf "rm -f annotateGraceDB.py";
-          #$system $rmCommand;
-        #}  elsif ($onSourceFAP >= 0) {
+        if ($onSourceFAP >= 0 and $onSourceFAP <= $FAP_TH and $onSourceFAP ne "") {
           $FAP = $onSourceFAP;
-          #$gracedbCommand = sprintf "gracedb log %s cohPTF results: FAP = %s for M_chirp in [0,8]. For full results, see '<a href=\"%s\">here</a>.'", $grbName, $FAP, $openboxLink; 
-          #printf $gracedbCommand;
-          #$gracedbAnnotate = system $gracedbCommand;
-          #$gracedbAnnotate = `$gracedbCommand`;
+          $FAP = sprintf("%.6f", $FAP);
           $annotateFile = sprintf "%s/annotateGraceDB_CBC_event_template.py", $SCRIPTSDIR;
-          $catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB_temp.py", $annotateFile, $grbName;
-          system $catCommand1;
-          $catCommand2 = sprintf "cat annotateGraceDB_temp.py | sed s/FAP_VAL/%s/ > annotateGraceDB.py", $FAP;
-          system $catCommand2;
-          $rmCommand = sprintf "rm -f annotateGraceDB_temp.py";
-          system $rmCommand;
+          $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/USERNAME/%s/g' -e 's/LIGORUN/%s/g' -e 's/FAP_VAL/%s/g' -e 's/PUBSERVER/%s/g'> annotateGraceDB.py", $annotateFile, $grbName, $USERNAME, $LIGORUN, $FAP, $PUBSERVER_SED;
+          system $catCommand;
           $annotateCommand = sprintf "python annotateGraceDB.py";
           system $annotateCommand;
           $rmCommand = sprintf "rm -f annotateGraceDB.py";
           system $rmCommand;
         } else {
-          $FAP = '';
-          #$gracedbCommand = sprintf "gracedb log %s cohPTF results: No event for M_chirp in [0,8]. For full results, see '<a href=\"%s\">here</a>.'", $grbName, $openboxLink;
-          #printf $gracedbCommand;
-          #$gracedbAnnotate = system $gracedbCommand;
-          #$gracedbAnnotate = `$gracedbCommand`;
+          if ($onSourceFAP >= 0 and $onSourceFAP > $FAP_TH and $onSourceFAP ne "") {
+          $FAP = $onSourceFAP;
+          $FAP = sprintf("%.6f", $FAP);
+          } else {
+          $FAP = "NaN";
+          }
           $annotateFile = sprintf "%s/annotateGraceDB_CBC_noevent_template.py", $SCRIPTSDIR;
-          $catCommand1 = sprintf "cat %s | sed s/EVENT_ID/%s/g > annotateGraceDB.py", $annotateFile, $grbName;
-          system $catCommand1;
+          $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/USERNAME/%s/g' -e 's/LIGORUN/%s/g' -e 's/FAP_VAL/%s/g' -e 's/PUBSERVER/%s/g'> annotateGraceDB.py", $annotateFile, $grbName, $USERNAME, $LIGORUN, $FAP, $PUBSERVER_SED;
+          system $catCommand;
           $annotateCommand = sprintf "python annotateGraceDB.py";
           system $annotateCommand;
           $rmCommand = sprintf "rm -f annotateGraceDB.py";
           system $rmCommand;
         }
 
+       #=== Do Omega scan for loudest event and annotate GraceDB =====#
+       if ($onSourceFAP ne "" and $onSourceFAP >= 0) {
+          if ($ifoString eq 'H1L1') {
+          $awkCommand = sprintf "awk 'c&&!--c;/table class/{c=22}' %s/output/ONSOURCE/efficiency/loudest_events.html", $PPDir;
+          } else {
+          $awkCommand = sprintf "awk 'c&&!--c;/table class/{c=21}' %s/output/ONSOURCE/efficiency/loudest_events.html", $PPDir;
+          }
+          $awkComandResult = -1;
+          $awkComandResult = `$awkCommand`;
+          chomp($awkComandResult);
+          my @stuff = $awkComandResult =~ />([^<]+)</g;
+          $statistics = join (" ", @stuff);
+          $peakGPS = substr($awkComandResult, 4, -5);
+
+          if ($ifoString eq 'H1L1') {
+             $ifo_H1 = "H1";    
+             $OmegaScan = sprintf "nohup /home/grb.exttrig/wdq/%s/wdqER %s %s > /home/grb.exttrig/wdq/%s/log/%s_%s.txt &",$LIGORUN,$ifo_H1,$peakGPS,$LIGORUN,$ifo_H1,$peakGPS;
+             system $OmegaScan;
+             $annotateFile = sprintf "%s/annotateGraceDB_CBC_omega_template.py", $SCRIPTSDIR;
+             $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/USERNAME/%s/g' -e 's/LIGORUN/%s/g' -e 's/IFO/%s/g' -e 's/GPS/%s/g' -e 's/PUBSERVER/%s/g'> annotateGraceDB.py", $annotateFile, $grbName, $USERNAME, $LIGORUN, $ifo_H1, $peakGPS, $PUBSERVER_SED;
+             system $catCommand;
+             $annotateCommand = sprintf "python annotateGraceDB.py";
+             system $annotateCommand;
+             $rmCommand = sprintf "rm -f annotateGraceDB.py";
+             system $rmCommand;
+
+             $ifo_L1 = "L1";
+             $OmegaScan = sprintf "nohup /home/grb.exttrig/wdq/%s/wdqER %s %s > /home/grb.exttrig/wdq/%s/log/%s_%s.txt &",$LIGORUN,$ifo_L1,$peakGPS,$LIGORUN,$ifo_L1,$peakGPS;
+             system $OmegaScan;
+             $annotateFile = sprintf "%s/annotateGraceDB_CBC_omega_template.py", $SCRIPTSDIR;
+             $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/USERNAME/%s/g' -e 's/LIGORUN/%s/g' -e 's/IFO/%s/g' -e 's/GPS/%s/g' -e 's/PUBSERVER/%s/g'> annotateGraceDB.py", $annotateFile, $grbName, $USERNAME, $LIGORUN, $ifo_L1, $peakGPS, $PUBSERVER_SED;
+             system $catCommand;
+             $annotateCommand = sprintf "python annotateGraceDB.py";
+             system $annotateCommand;
+             $rmCommand = sprintf "rm -f annotateGraceDB.py";
+             system $rmCommand;
+             } else {
+             $OmegaScan = sprintf "nohup /home/grb.exttrig/wdq/%s/wdqER %s %s > /home/grb.exttrig/wdq/%s/log/%s_%s.txt &",$LIGORUN,$ifoString,$peakGPS,$LIGORUN,$ifoString,$peakGPS;
+             system $OmegaScan;
+             $annotateFile = sprintf "%s/annotateGraceDB_CBC_omega_template.py", $SCRIPTSDIR;
+             $catCommand = sprintf "cat %s | sed -e 's/EVENT_ID/%s/g' -e 's/USERNAME/%s/g' -e 's/LIGORUN/%s/g' -e 's/IFO/%s/g' -e 's/GPS/%s/g' -e 's/PUBSERVER/%s/g'> annotateGraceDB.py", $annotateFile, $grbName, $USERNAME, $LIGORUN, $ifoString, $peakGPS, $PUBSERVER_SED;
+             system $catCommand;
+             $annotateCommand = sprintf "python annotateGraceDB.py";
+             system $annotateCommand;
+             $rmCommand = sprintf "rm -f annotateGraceDB.py";
+             system $rmCommand;
+             }} else {
+             $OmegaScan = "Null";
+             }  
+
+
+          }
+
         &sendResultsMessage;
       }
-#    }
-#  }
   #=== Endif status is not PROCESSED ===#
 }
 
 sub sendResultsMessage {
 
-  $emailsFile   = sprintf "%s/grbemailsless.txt", $SCRIPTSDIR;
+  $emailsFile   = sprintf "%s/eventadvocate/%s_grbemails.txt", $SCRIPTSDIR, $grbName;
   $messagesFile = sprintf "%s/grbmessages_%s.log", $SCRIPTSDIR, $LIGORUN;
 
   #=== Specify pages with results ===#
-  $resultsPageClosed = sprintf "%s/GRB%s/summary.html", $RESULTSURL, $grbName;
-  $resultsPageOpen   = sprintf "%s/GRB%s/OPEN_summary.html", $RESULTSURL, $grbName;
+  $resultsPageClosed = sprintf "%s/GRB%s/GRB%s_CLOSED/summary.html", $RESULTSURL, $grbName, $grbName;
+  $resultsPageOpen   = sprintf "%s/GRB%s/GRB%s_OPEN/summary.html", $RESULTSURL, $grbName, $grbName;
 
   $eheaderTable = {};
-  $eheaderTable->{'SUBJECT'} = sprintf "[cohPTF] GRB %s processed", $grbName;
+  $eheaderTable->{'SUBJECT'} = sprintf "[PyGRB] GRB %s open-box", $grbName;
 
   #=== Construct the message ===#
-  $noticeString = sprintf "GRB %s has been processed, %8.3f hours after the trigger.", 
+  $noticeString = sprintf "GRB %s box has been opened, %8.3f hours after the trigger.", 
                                $grbName, $processTime;
   $noticeString = sprintf "%s\n\nClosed box results:", $noticeString;
   $noticeString = sprintf "%s\n<%s>", $noticeString, $resultsPageClosed;

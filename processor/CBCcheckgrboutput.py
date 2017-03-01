@@ -11,20 +11,19 @@ $Id$
 # -------------------------------------------------------------------------
 
 # ---- Import standard modules to the python path.
-import sys, os, commands, getopt
-import ConfigParser
+import sys, os, commands
+from optparse import OptionParser
 
 # ---- Function usage.
 def usage():
   msg = """\
 Usage: 
-  grb.sh [options]
+  CBCcheckgrboutput.py [options]
   -d, --grb-dir <path>        path of GRB dir 
-  -v, --verbose               use this to have lots of output 
-  -h, --help                  display this message and exit
+  -t, --tmp-dir <path>        path of temporary dir
 
 e.g.,
-  PTFcheckgrboutput.py -d /home/grb.exttrig/Online/Test_coh_GRB/GRB100515A/GRB100515A
+  CBCcheckgrboutput.py -t /usr1/dtalukder/log/dtalukder/pegasus/pygrb/run0001 -g /home/dtalukder/PyGRB/runs/test_may012015/GRBE124599 -j inspiral
 """
   print >> sys.stderr, msg
 
@@ -32,45 +31,22 @@ e.g.,
 # -------------------------------------------------------------------------
 #      Parse the command line options.
 # -------------------------------------------------------------------------
+parser = OptionParser()
 
-# ---- Initialise command line argument variables.
-params_file = None
-grb_list = None
-grbscript = None
-detector = []
-verboseFlag = 0
+parser.add_option("-g", "--grb-dir", dest = "grbdir", type="string",
+                  help = "GRB dir",
+                  metavar="NAME")
+parser.add_option("-t", "--tmp-dir", dest = "tmpdir", type="string",
+                  help = "TMP dir",
+                  metavar="NAME")
+parser.add_option("-j", "--job-type", dest = "jobtype", type="string",
+                  help = "JOB type",
+                  metavar="NAME")
+(options, args) = parser.parse_args()
 
-# ---- Syntax of options, as required by getopt command.
-# ---- Short form.
-shortop = "hvd:"
-# ---- Long form.
-longop = [
-   "help",
-   "verbose",
-   "grb-dir=",
-   ]
-
-# ---- Get command-line arguments.
-try:
-  opts, args = getopt.getopt(sys.argv[1:], shortop, longop)
-except getopt.GetoptError:
-  usage()
-  sys.exit(1)
-
-# ---- Parse command-line arguments.  Arguments are returned as strings, so 
-#      convert type as necessary.
-for o, a in opts:
-  if o in ("-h", "--help"):
-    usage()
-    sys.exit(0)
-  elif o in ("-d", "--grb-dir"):
-    grb_dir = a      
-  elif o in ("-v", "--verbose"):
-    verboseFlag = 1      
-  else:
-    print >> sys.stderr, "Unknown option:", o
-    usage()
-    sys.exit(1)
+grb_dir = options.grbdir
+tmp_dir = options.tmpdir
+job_type = options.jobtype
 
 # ---- Check that all required arguments are specified, else exit.
 if not grb_dir:
@@ -78,17 +54,10 @@ if not grb_dir:
   print >> sys.stderr, "Use --grb-dir to specify it."
   sys.exit(1)
 
-if verboseFlag:
-    # ---- Status message.  Report all supplied arguments.
-    print >> sys.stdout
-    print >> sys.stdout, "####################################################"
-    print >> sys.stdout, "#    Checking output of coh-PTF GRB search      #"
-    print >> sys.stdout, "####################################################"
-    print >> sys.stdout
-    print >> sys.stdout, "Parsed input arguments:"
-    print >> sys.stdout
-    print >> sys.stdout, "             GRB dir:", grb_dir
-    print >> sys.stdout
+if not tmp_dir:
+  print >> sys.stderr, "No temporary dir specified."
+  print >> sys.stderr, "Use --tmp-dir to specify it."
+  sys.exit(1)
 
 # ---- assume all files are present
 filesMissing  = 0
@@ -97,76 +66,93 @@ filesMissing  = 0
 if not(grb_dir.endswith('/')):
    grb_dir = grb_dir + '/'
 
-if not os.path.isdir(grb_dir + 'onoff/'): 
-   print >> sys.stdout, "Not a valid directory: ", grb_dir + 'onoff/'
-   sys.exit()
+dirContentsinspiral = os.listdir(grb_dir)
 
-if not os.path.isdir(grb_dir + 'timeslides/'): 
-   print >> sys.stdout, "Not a valid directory: ", grb_dir + 'timeslides/'
-   sys.exit()
+if not(tmp_dir.endswith('/')):
+   tmp_dir = tmp_dir + '/'
 
+dirContentsinspiral = os.listdir(grb_dir +'inspiral/')
+dirContentsinjections = os.listdir(grb_dir +'injections/')
+dirContentsinspiralsub = os.listdir(tmp_dir)
+dirContentsPP = os.listdir(grb_dir + 'post_processing/')
+dirContentstrigctrsub = os.listdir(tmp_dir)
+InspiralFiles = []
+InjectionsFiles = []
+InspiralsubFiles = []
+PPFiles = []
+trigctrsubFiles = []
 
-dirContentsonoff = os.listdir(grb_dir + 'onoff/')
-dirContentsTS = os.listdir(grb_dir + 'timeslides/')
+print >> sys.stdout, "Looking for INSPIRAL files in ", grb_dir + 'inspiral/'
 
-OnoffinsFiles = []
-TSinsFiles = []
-Onoffdag = []
-TSdag = []
+for idx in range(len(dirContentsinspiral)):
+   if (dirContentsinspiral[idx].startswith('H1L1V1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) or (dirContentsinspiral[idx].startswith('H1L1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) or (dirContentsinspiral[idx].startswith('L1V1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) or (dirContentsinspiral[idx].startswith('H1V1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) or (dirContentsinspiral[idx].startswith('H1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) or (dirContentsinspiral[idx].startswith('L1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) or (dirContentsinspiral[idx].startswith('V1-INSPIRAL') and dirContentsinspiral[idx].endswith('.xml.gz')) and os.path.isfile(grb_dir + 'inspiral/' + dirContentsinspiral[idx]):
+      InspiralFiles.append(dirContentsinspiral[idx])
 
-if verboseFlag:
-    print >> sys.stdout, "Looking for COH_PTF_INSPIRAL files in ", grb_dir + 'onoff/'
+print >> sys.stdout, "Looking for INSPIRAL files in ", grb_dir + 'injections/'
 
-for idx in range(len(dirContentsonoff)):
-   if dirContentsonoff[idx].startswith('H1L1V1-COH_PTF_INSPIRAL') or dirContentsonoff[idx].startswith('H1L1-COH_PTF_INSPIRAL') or dirContentsonoff[idx].startswith('L1V1-COH_PTF_INSPIRAL') or dirContentsonoff[idx].startswith('H1V1-COH_PTF_INSPIRAL') and os.path.isfile(grb_dir + 'onoff/' + dirContentsonoff[idx]):
-      OnoffinsFiles.append(dirContentsonoff[idx])
-   if dirContentsonoff[idx].endswith('.dag'):
-      Onoffdag.append(dirContentsonoff[idx]) 
+for idx in range(len(dirContentsinjections)):
+   if (dirContentsinjections[idx].startswith('H1L1V1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) or (dirContentsinjections[idx].startswith('H1L1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) or (dirContentsinjections[idx].startswith('L1V1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) or (dirContentsinjections[idx].startswith('H1V1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) or (dirContentsinjections[idx].startswith('H1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) or (dirContentsinjections[idx].startswith('L1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) or (dirContentsinjections[idx].startswith('V1-INSPIRAL') and dirContentsinjections[idx].endswith('.xml.gz')) and os.path.isfile(grb_dir + 'injections/' + dirContentsinjections[idx]):
+      InjectionsFiles.append(dirContentsinjections[idx])
 
-f1 = open(grb_dir + 'onoff/' + str(Onoffdag).strip('[\' \']'))
-contents1 = f1.read()
-f1.close()
-num1 = contents1.count("PARENT ")
+print >> sys.stdout, "Looking for inspiral*.sub files in ", tmp_dir
 
-if verboseFlag:
-    print >> sys.stdout, "Looking for COH_PTF_INSPIRAL files in ", grb_dir + 'timeslides/'
+#for idx in range(len(dirContentsinspiralsub)):
+#   if dirContentsinspiralsub[idx].startswith('inspiral') and dirContentsinspiralsub[idx].endswith('.sub') and os.path.isfile(tmp_dir + dirContentsinspiralsub[idx]):
+#      InspiralsubFiles.append(dirContentsinspiralsub[idx])
 
-for idx in range(len(dirContentsTS)):
-   if dirContentsTS[idx].startswith('H1L1V1-COH_PTF_INSPIRAL') or dirContentsTS[idx].startswith('H1L1-COH_PTF_INSPIRAL') or dirContentsTS[idx].startswith('L1V1-COH_PTF_INSPIRAL') or dirContentsTS[idx].startswith('H1V1-COH_PTF_INSPIRAL') and os.path.isfile(grb_dir + 'timeslides/' + dirContentsTS[idx]):
-      TSinsFiles.append(dirContentsTS[idx])
-   if dirContentsTS[idx].endswith('.dag'):
-      TSdag.append(dirContentsTS[idx]) 
+with open(tmp_dir+'pygrb_offline-0.dag') as dag:
+     for lines in dag:
+         if lines.lstrip().startswith('JOB inspiral') and lines.rstrip().endswith('.sub'):
+            InspiralsubFiles.append('1')
 
-f2 = open(grb_dir + 'timeslides/' + str(TSdag).strip('[\' \']'))
-contents2 = f2.read()
-f2.close()
-num2 = contents2.count("PARENT ")
+inspiralmissing = len(InspiralsubFiles) - (len(InspiralFiles) + len(InjectionsFiles))
 
+print >> sys.stdout, "Looking for INSPIRAL files in ", grb_dir + 'post_processing/'
 
-filesMissing1 = num1 - len(OnoffinsFiles)
-filesMissing2 = num2 - len(TSinsFiles)
+for idx in range(len(dirContentsPP)):
+   if (dirContentsPP[idx].startswith('H1L1V1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) or (dirContentsPP[idx].startswith('H1L1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) or (dirContentsPP[idx].startswith('L1V1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) or (dirContentsPP[idx].startswith('H1V1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) or (dirContentsPP[idx].startswith('H1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) or (dirContentsPP[idx].startswith('L1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) or (dirContentsPP[idx].startswith('V1-INSPIRAL') and dirContentsPP[idx].endswith('.xml.gz')) and os.path.isfile(grb_dir + 'post_processing/' + dirContentsPP[idx]):
+      PPFiles.append(dirContentsPP[idx])
 
-if filesMissing1:
-   print >> sys.stdout, grb_dir + 'onoff/', " :Number of output files missing: ", filesMissing1
+print >> sys.stdout, "Looking for trig_cluster*.sub files in ", tmp_dir
+
+#for idx in range(len(dirContentstrigctrsub)):
+#   if dirContentstrigctrsub[idx].startswith('trig_cluster') and dirContentstrigctrsub[idx].endswith('.sub') and os.path.isfile(tmp_dir + dirContentstrigctrsub[idx]):
+#      trigctrsubFiles.append(dirContentstrigctrsub[idx])
+
+with open(tmp_dir+'pygrb_offline-0.dag') as dag:
+     for lines in dag:
+         if lines.lstrip().startswith('JOB trig_cluster') and lines.rstrip().endswith('.sub'):
+            trigctrsubFiles.append('1')
+print len(trigctrsubFiles)
+PPmissing = abs(len(PPFiles) - 2*len(trigctrsubFiles))
+
+if job_type == 'inspiral':
+   if inspiralmissing:
+       print >> sys.stdout, grb_dir + 'inspiral', ": Number of output inspiral files missing:", inspiralmissing
+   else:
+       print >> sys.stdout, grb_dir + 'inspiral', ": No output inspiral file missing "
 else:
-   print >> sys.stdout, grb_dir + 'onoff/', " :No output files missing"
+   if PPmissing:
+       print >> sys.stdout, grb_dir + 'post_processing', ": Number of output trigcluster files missing:", PPmissing
+   else:
+       print >> sys.stdout, grb_dir +'post_processing', ": No output trigcluster file missing "
 
-if filesMissing2:
-   print >> sys.stdout, grb_dir + 'timeslides/', " :Number of output files missing: ", filesMissing2
-else:
-   print >> sys.stdout, grb_dir + 'timeslides/', " :No output files missing"
+   
 
 
-print >> sys.stdout, "Checking onoff log dir for errors with coh-PTF jobs ..."
-errCommand1 = 'ls --time-style=long-iso -al ' + grb_dir +  'onoff/logs/coh_PTF_inspiral*.err | awk \'{if ($5 > 0) print $5 " " $8}\' '
-os.system(errCommand1)
 
-print >> sys.stdout, "Checking timeslides log dir for errors with coh-PTF jobs ..."
-errCommand2 = 'ls --time-style=long-iso -al ' + grb_dir +  'timeslides/logs/coh_PTF_inspiral*.err | awk \'{if ($5 > 0) print $5 " " $8}\' '
-os.system(errCommand2)
 
-if verboseFlag:
-    print >> sys.stdout
-    print >> sys.stdout, " ... finished."
 
-print >> sys.stdout, " " 
+
+
+
+
+
+
+
+
+
+
+
+
+

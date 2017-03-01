@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-require 'exttrig_params.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_params.pl';
 
 #=== Get user name ===#
 $USERNAME = `whoami`;
@@ -14,15 +14,17 @@ printf "$SCRIPTSDIR\n";
 #=== Specify monitor commands ===#
 $monitorGrb      = sprintf "%s/XmonitorGRB", $SCRIPTSDIR;
 $monitorPostproc = sprintf "%s/XmonitorPostproc", $SCRIPTSDIR;
+#$monitorPreOpenbox = sprintf "%s/XmonitorPreOpenbox",$SCRIPTSDIR;
 $monitorOpenbox  = sprintf "%s/XmonitorOpenbox", $SCRIPTSDIR;
 $monitorGrbcbc      = sprintf "%s/CBCmonitorGRB", $SCRIPTSDIR;
 $monitorPostproccbc = sprintf "%s/CBCmonitorPostproc", $SCRIPTSDIR;
 $monitorOpenboxcbc  = sprintf "%s/CBCmonitorOpenbox", $SCRIPTSDIR;
+$copywebfile = sprintf "%s/copyWeb", $SCRIPTSDIR;
 
-printf "$monitorGrb\n";
-printf "$monitorPostproc\n";
-printf "$monitorGrbcbc\n";
-printf "$monitorPostproccbc\n";
+#printf "$monitorGrb\n";
+#printf "$monitorPostproc\n";
+#printf "$monitorGrbcbc\n";
+#printf "$monitorPostproccbc\n";
 
 #=== Set start time ===#
 $currentDelay = $MONDELAY + 1;
@@ -36,12 +38,14 @@ while (1) {
     $previousTime = time;
 
     #=== Execute monitors ===#
-    system $monitorGrb;
-    system $monitorPostproc;
-    system $monitorOpenbox;
-    system $monitorGrbcbc;
-    system $monitorPostproccbc;
-    system $monitorOpenboxcbc;
+system $monitorGrb;
+system $monitorPostproc;
+#system $monitorPreOpenbox;
+system $monitorOpenbox;
+system $monitorGrbcbc;
+system $monitorPostproccbc;
+system $monitorOpenboxcbc;
+system $copywebfile;
   } else {
 
 printf "Sleeping...\n";

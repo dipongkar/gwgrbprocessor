@@ -1,9 +1,12 @@
 #!/usr/bin/perl
 
-use Switch;
+#use Switch;
+#use strict;
+use warnings;
+use feature qw(switch say);
 
-require 'exttrig_utils.pl';
-require 'exttrig_params.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_utils.pl';
+require '/home/grb.exttrig/Online/O2/processor/exttrig_params.pl';
 
 #=== Get user name ===#
 $USERNAME = `whoami`;
@@ -67,14 +70,14 @@ $currentDelay = $MONDELAY + 1;
 
     #=== Loop through GRBs ===#
     foreach $procStat (@procStats) {
-      ($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$jobCluster,$latency,$jobRunTime,$jobStatus,$rescueCtr) = split(' ',$procStat);
+      ($grbName,$grbGPS,$grbDate,$grbTime,$grbRA,$grbDec,$grbError,$ifoString,$grbSat,$grbTrigDur,$jobCluster,$latency,$jobRunTime,$jobStatus,$rescueCtr) = split(' ',$procStat);
 
       if ($grbName eq '') {
         next;
       }
 
       if ($jobStatus eq 'NOFRAMES') {
-        if (length($ifoString) < 3) {
+        if (length($ifoString) < 2) {
           $jobStatus = 'DATACUT';
         } else {
           #=== Update search status web page ===#
@@ -88,6 +91,7 @@ $currentDelay = $MONDELAY + 1;
           $searchStatusTable->{'GRB_ERR'}       = $grbError;
           $searchStatusTable->{'IFO_STRING'}    = $ifoString;
           $searchStatusTable->{'GRB_SAT'}       = $grbSat;
+          $searchStatusTable->{'TRIG_DUR'}      = $grbTrigDur;
           $searchStatusTable->{'JOB_CLUSTER'}   = $jobCluster;
           $searchStatusTable->{'LATENCY'}       = $latency;
           $searchStatusTable->{'RUN_TIME'}      = $jobRunTime;
@@ -104,13 +108,14 @@ $currentDelay = $MONDELAY + 1;
 
       #=== If condor job was submitted, check on jobs ===#
       if ($jobStatus ne 'PROCESSED' && ($jobStatus ne 'RESCUE' || $jobCluster != 0)) {
-        $condorCommand = sprintf "condor_q %d", $jobCluster;
+        $condorCommand = sprintf "condor_q -nobatch %d", $jobCluster;
         @condorResult  = ();
         @condorResult  = `$condorCommand`;
         chomp(@condorResult);
 
         #=== If job is not found ===#
-        if ($#condorResult < 4) {
+        #if ($#condorResult < 4) {
+        if ($#condorResult < 6) {
           #=== Append GRB to output processed jobs file ===#
           if ($jobStatus ne 'DATACUT' && $#condorResult+1 != 0) {
             #=== Check if job outputs are complete ===#
@@ -168,7 +173,8 @@ $currentDelay = $MONDELAY + 1;
           }
         } else {
           #=== Parse the condor_q output ===#
-          $condorLine = $condorResult[$#condorResult];
+          #$condorLine = $condorResult[$#condorResult];
+          $condorLine = $condorResult[$#condorResult-2];
           ($clusterID,$ownerName,$submitDate,$submitTime, 
              $jobRunTime,$runStatus,$runPriority,$runSize,$runCommand) = 
                split(' ',$condorLine);
@@ -176,10 +182,14 @@ $currentDelay = $MONDELAY + 1;
           printf "$jobRunTime $runStatus $runPriority $runSize $runCommand\n";
 
           #=== Specify job status explicitly ===#
-          switch ($runStatus) {
-            case 'R' { $jobStatus = 'RUNNING'; }
-            case 'I' { $jobStatus = 'IDLE';    }
-            case 'H' { $jobStatus = 'HELD';    }
+          #switch ($runStatus) {
+          #  case 'R' { $jobStatus = 'RUNNING'; }
+          #  case 'I' { $jobStatus = 'IDLE';    }
+          #  case 'H' { $jobStatus = 'HELD';    }
+          given ($runStatus) {
+            when ('R') { $jobStatus = 'RUNNING'; }
+            when ('I') { $jobStatus = 'IDLE';    }
+            when ('H') { $jobStatus = 'HELD';    }
           }
         }
 
@@ -206,19 +216,29 @@ $currentDelay = $MONDELAY + 1;
               #==== Launch post-processing job ===#
               $jobDir = sprintf "%s/GRB%s", $JOBSDIR, $grbName;
               chdir "$jobDir";
-
+              if ($ifoString eq 'H1L1') {
               $prepPageCommand = sprintf "xgrbwebpage.py  \\
                 --grb-name %s \\
                 --user-tag online \\
-                --veto-method medianAlphaCutCirc \\
+                --veto-method alphaLinCutCirc \\
                 --percentile 99-99 \\
                 --add-stat powerlaw \\
                 --grb-dir %s \\
                 --auto-dir %s \\
                 --web-dir %s \\
-                --log-dir %s --priority 20", $grbName, $jobDir, $jobDir, $PROCWEBDIR, $LOGDIR;
+                --log-dir %s --priority 20 --event-display 1 --big-mem 5000 --freq-veto None", $grbName, $jobDir, $jobDir, $PROCWEBDIR, $LOGDIR;
                 # --log-dir %s --priority 20", $grbName, $jobDir, $jobDir, $PROCWEBDIR, $LOGDIR;
-
+                 } else {
+              $prepPageCommand = sprintf "xgrbwebpage.py  \\
+                --grb-name %s \\
+                --user-tag online \\
+                --veto-method None \\
+                --percentile 99-99 \\
+                --grb-dir %s \\
+                --auto-dir %s \\
+                --web-dir %s \\
+                --log-dir %s --priority 20 --event-display 1 --freq-veto None", $grbName, $jobDir, $jobDir, $PROCWEBDIR, $LOGDIR;
+                    }
               $prepPageResult = 1;
               $prepPageResult = system $prepPageCommand;
 
@@ -264,13 +284,13 @@ $currentDelay = $MONDELAY + 1;
               chdir "$SCRIPTSDIR";
             }
 
-            printf PROCJOB "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %s %s %s %s %03d %s %s %s %03d\n", 
-                            $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat,
+            printf PROCJOB "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %7.3f %s %s %s %s %03d %s %s %s %03d\n", 
+                            $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $grbTrigDur,
                             $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr,
                             $procjobCluster, $procjobRunTime, $procjobStatus, $procrescueCtr;
           } else {
-            $monitorString = sprintf "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %s %s %s %s %03d", 
-                             $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
+            $monitorString = sprintf "%s %10.0f %s %s %7.3f %7.3f %7.3f %s %s %7.3f %s %s %s %s %03d", 
+                             $grbName, $grbGPS, $grbDate, $grbTime, $grbRA, $grbDec, $grbError, $ifoString, $grbSat, $grbTrigDur, $jobCluster, $latency, $jobRunTime, $jobStatus, $rescueCtr;
             $sedCommand = sprintf "sed '%ds/.*/%s/' %s > %s", 
                      $lineNumber, $monitorString, $monitorStatusFile, $tempFile;
           }
@@ -301,6 +321,7 @@ $currentDelay = $MONDELAY + 1;
         $searchStatusTable->{'GRB_ERR'}     = $grbError;
         $searchStatusTable->{'IFO_STRING'}  = $ifoString;
         $searchStatusTable->{'GRB_SAT'}     = $grbSat;
+        $searchStatusTable->{'TRIG_DUR'}    = $grbTrigDur;
         $searchStatusTable->{'JOB_CLUSTER'} = $jobCluster;
         $searchStatusTable->{'LATENCY'}     = $latency;
         $searchStatusTable->{'RUN_TIME'}    = $jobRunTime;
