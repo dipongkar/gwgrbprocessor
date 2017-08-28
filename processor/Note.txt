@@ -1,8 +1,0 @@
-nohup ./queryGraceDB > nohup_queryGraceDB.txt&
-
-nohup ./XprocessGRB > nohup_XprocessGRB.txt&
-
-nohup ./CBCprocessGRB > nohup_CBCprocessGRB.txt&
-
-nohup ./monitorJobs > nohup_monitorJobs.txt&
-
