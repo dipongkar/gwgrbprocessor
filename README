@@ -1,0 +1,20 @@
+Welcome to Online Searches for Gravitational Waves in coincidence with
+Gamma-ray Bursts.
+
+gwgrbprocessor fully automates the processes of Online Searches for
+Gravitational Waves in coincidence with Gamma-ray Bursts. It makes query to
+GraceDB External events, annotates it, checks for required gravitational-wave
+data, launches LIGO/Virgo data analysis, diagnoses failures, aids in loudest
+trigger data-quality follow-ups, generates detector-status and result Circulars,
+initiates follow-up advocacy and many more.
+
+More information can be found at the website:
+   <https://wiki.ligo.org/viewauth/Bursts/GRBGroup>
+
+To install gwgrbprocessor locally:
+   python setup.py install --prefix=/path-to-install-directorys
+
+The most current gwgrbprocessor development version is available from
+the git repository:
+
+   git clone https://github.com/dipongkar/gwgrbprocessor
