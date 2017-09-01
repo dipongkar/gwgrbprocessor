@@ -1,0 +1,44 @@
+#!/usr/bin/perl -w
+
+require 'exttrig_params.pl';
+
+while (1) {
+
+#=== Get user name ===#
+$USERNAME = `whoami`;
+chomp($USERNAME);
+
+#=== Specify local working directories ===#
+$HOMEDIR = sprintf "/home/%s", $USERNAME;
+$GRBDIR  = sprintf "%s/Online/%s/processor/grbs", $HOMEDIR, $LIGORUN;
+
+#=== Prepare query command ===#
+$startGps = `lalapps_tconvert $LIGORUN_START_TIME`;
+chomp($startGps);
+$currentGps = `lalapps_tconvert $LIGORUN_END_TIME`;
+chomp($currentGps);
+
+$queryCommand = sprintf "gracedb search group: External pipeline: Fermi pipeline: Swift search: GRB gpstime: %s .. %s --columns=graceid,group,search,gpstime,created,dataurl,extra_attributes.GRB.ra,extra_attributes.GRB.dec,extra_attributes.GRB.error_radius,extra_attributes.GRB.trigger_duration,extra_attributes.GRB.how_description > %s/grbingracedb_%s_temp.txt\n", $startGps, $currentGps, $GRBDIR, $LIGORUN;
+printf $queryCommand;
+$queryResult = system $queryCommand;
+
+$tempgrbFile = sprintf "%s/grbingracedb_%s_temp.txt", $GRBDIR, $LIGORUN;
+$grbFile = sprintf "%s/grbingracedb_%s.txt", $GRBDIR, $LIGORUN;
+$cpCommand = sprintf "cp %s %s", $tempgrbFile, $grbFile;
+system $cpCommand;
+
+# === Advocate email ===
+$advocate_email = sprintf "python %s/Online/%s/processor/eventadvocate/Assign_advocate.py", $HOMEDIR, $LIGORUN;
+system $advocate_email;
+
+#=== Prepare sleep ===#
+$logFile = sprintf "%s/gracedb_query_logs.log", $GRBDIR;
+open LOGFILE, ">>$logFile"
+  or die "Error opening file $logFile: $!";
+$timeString = localtime;
+printf LOGFILE "Starting sleep on %s.\n", $timeString;
+close LOGFILE;
+$SLEEPTIME = 5*60;  # 5 minutes (NEED CHANGE FOR FREQUENCY) #
+printf "Sleeping...\n";
+sleep $SLEEPTIME;
+}
